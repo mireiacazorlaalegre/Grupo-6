@@ -1,33 +1,38 @@
 from tkinter import *                 # Librería para crear la ventana y los botones
 import serial                         # Librería para comunicarse por el puerto serie (pySerial)
-from matplotlib.figure import Figure  # En vez de pyplot, se usa Figure (la gráfica no abre ventana propia)
+from matplotlib.figure import Figure 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg  # Permite meter la gráfica dentro de Tkinter
 import threading      
-import random                # Para ejecutar la recepción en paralelo a la ventana
+import random                
 device = 'COM5'                       # Puerto serie del PC donde está el Arduino
 ser = serial.Serial(device, baudrate=9600, timeout=1)  # Abre el puerto a 9600 baudios; espera máx. 1 s al leer
 leyendo = False                       # Bandera: indica si se deben mostrar los datos recibidos
-temperaturas = []                     # Lista con las temperaturas recibidas
+temperaturas = []                  # Lista con las temperaturas recibidas
+humedades = []                    # Lista con las humedades recibidas
 eje_x = []                            # Lista con el número de cada muestra
 i = 0                                 # Contador de muestras
 
-def recepcion ():                     # Función que se ejecutará en un hilo aparte (solo lee, NO dibuja)
+def recepcion ():                     # Función que se ejecutará en un hilo aparte (solo lee)
      global i
      while True:                      # Bucle infinito
       if leyendo and ser.in_waiting > 0:             # Si está activada la lectura y hay datos esperando
        linea = ser.readline().decode('utf-8').rstrip()  # Lee una línea, la pasa a texto y quita saltos finales
        print(linea)                                  # La muestra por la consola
        try:                                          # Extrae el número de una línea tipo "Temp:24.5"
-           temperatura = float(linea.split(':')[1])
+           partes = linea.split(':')                 # ["T", "27.90", "H", "50.00"]
+           temperatura = float(partes[1])
+           humedad = float(partes[3]) 
        except (IndexError, ValueError):              # Si la línea llega rota, se ignora
            continue
        eje_x.append(i)                               # Guarda el número de muestra
        temperaturas.append(temperatura)              # Guarda la temperatura
+       humedades.append(humedad)                   # Guarda la humedad
        i = i + 1                                     # Siguiente muestra
 
 def dibujar ():                       # Se ejecuta cada 0,5 s dentro del bucle de Tkinter
-    n = len(temperaturas)                            # Mismo número de datos en X y en Y
-    linea_plot.set_data(eje_x[:n], temperaturas[:n]) # Actualiza la línea con todos los datos
+    n = len(humedades)                           # Mismo número de datos en X y en Y
+    linea_temp.set_data(eje_x[:n], temperaturas[:n]) # Actualiza la línea con todos los datos
+    linea_hum.set_data(eje_x[:n], humedades[:n]) 
     ax.set_xlim(max(0, i - 100), max(100, i))        # El eje X se desplaza con los datos
     ax.set_title(str(i))                             # Título de la gráfica
     canvas.draw_idle()                               # Redibuja la gráfica incrustada
@@ -88,8 +93,15 @@ fondo.create_text(600, 40, text="TEMPERATURA", fill="white", font=("Helvetica", 
 fig = Figure(figsize=(6, 3))          # Figura de Matplotlib (sustituye a plt)
 ax = fig.add_subplot(111)             # Los ejes donde se dibuja
 ax.set_xlim(0, 100)                   # Eje X inicial
-ax.set_ylim(20, 30)                   # Eje Y fijo
-linea_plot, = ax.plot([], [])         # La única línea de la gráfica, vacía al principio
+ax.set_ylim(20, 40)  
+ax.set_ylabel("Temperatura (°C)", color="red")   
+linea_temp, = ax.plot([], [], color="red")       # antes linea_plot
+ax2 = ax.twinx()                                 #segundo eje Y a la derecha
+ax2.set_ylim(0, 100)                             
+ax2.set_ylabel("Humedad (%)", color="blue")      
+linea_hum, = ax2.plot([], [], color="blue")      
+                           
+
 canvas = FigureCanvasTkAgg(fig, master=window)  # Conecta la figura con la ventana de Tkinter
 canvas.get_tk_widget().grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky=N + S + E + W)  # La coloca en la fila 1, ocupando las 3 columnas
 
