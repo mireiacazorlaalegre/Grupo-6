@@ -1,4 +1,3 @@
-from tkmacosx import Button
 import numpy as np
 import random
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
