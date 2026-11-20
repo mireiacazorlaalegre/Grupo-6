@@ -75,3 +75,19 @@ Cada mensaje es una línea de texto con el formato **codigo:dato:dato**.
 - **6:** / **7:** — parar / reanudar el radar
 - **8:milisegundos** — nuevo periodo del radar (15–200 ms por grado)
 - **9:** — modo rastreo: el radar vuelve a hacer el barrido
+
+## Delcaración del uso de la IA
+### Versión 1
+Para esta primero versión del proyecto de hemos utilizado la inteligencia artificial como apoyo complementario y herramienta de ayuda. En concreto, nos ha ayudado en el diseño de la interfaz:  la elaboración del código de los distintos elementos visuales, como la implementación del bucle para crear estrellas en el fondo, con el objetivo de conseguir un resultado más estético. Además, también ha sido una herramienta útil a la hora de detectar y corregir errores a lo largo del desarrollo, como por ejemplo, cuando nuestra pantalla LCD parpadeaba sin razón, la IA supo identificarlo y corregir el problema. 
+Las decisiones, el planteamiento y el contenido del trabajo han sido elaborado por nosotros y hemos revisado críticamente todo lo propuesto por la IA antes de incorporarlo al resultado final
+
+### Versión 2
+En la segunda versión de este proyecto hemos vuelto a utilizar herramientas de inteligencia artificial como apoyo complementario durante el proceso. En esta ocasión, nos han ayudado principalmente con el funcionamiento del servo, con el que habíamos tenido problemas, permitiéndonos identificar las causas y encontrar una solución. Además, nos han servido para comprender mejor determinadas partes del código, para recibir sugerencias orientadas a mejorarlo y simplificarlo, y para entender algunos conceptos técnicos relacionados con el montaje y la programación. Por último, también las hemos empleado para detectar y corregir errores durante las pruebas.
+
+
+
+
+
+
+
+
