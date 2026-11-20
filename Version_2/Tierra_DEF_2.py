@@ -31,35 +31,35 @@ import time                # para medir el tiempo desde el último mensaje
 import math                # pasar grados a radianes
 
 # ---------- Colores ----------
-FONDO = "#0B1A2E"
-BORDE = "#2A4468"
-TEXTO2 = "#A9B3C4"
-C_TEMP = "#FE4E4E"
-C_HUM = "#9CC8F0"
-C_CERCA = "#E9D7A5"
-C_RADAR = "#9FE2BF"
-C_INICIAR = "#FFFFFF"
-C_PARAR = "#F28B82"
-C_REANUDAR = "#7FD6E8"
-C_APLICAR = "#E9D7A5"
-C_ALARMA = "#FF5C5C"
-C_MEDIA = "#ECF65C"
+FONDO = "#0B1A2E"      # Azul marino
+BORDE = "#2A4468"      # Líneas separadoras
+TEXTO2 = "#A9B3C4"     # Texto secundario
+C_TEMP = "#FE4E4E"     # Temperatura
+C_HUM = "#9CC8F0"      # Humedad
+C_CERCA = "#E9D7A5"    # Objeto más cercano
+C_RADAR = "#9FE2BF"      # Radar y estados correctos
+C_INICIAR = "#FFFFFF"  # Botón INICIAR
+C_PARAR = "#F28B82"    # Botones de parar
+C_REANUDAR = "#7FD6E8" # Botones de reanudar
+C_APLICAR = "#E9D7A5"  # Botón de aplicar
+C_ALARMA = "#FF5C5C"   # Alarmas (fallo de sensor, de conexión y de temperatura media)
+C_MEDIA = "#ECF65C"    # Línea de la media de temperatura
 
 # ---------- Comunicación y datos ----------
 device = 'COM5'
-ser = serial.Serial(device, baudrate=9600, timeout=1)
-hilo_iniciado = False
-alarma_sensor = False
-ultimo_mensaje = 0
-TIMEOUT_CONEXION = 6
+ser = serial.Serial(device, baudrate=9600, timeout=1)  # 9600 baudios, espera máx. 1 s al leer
+hilo_iniciado = False       # True cuando se ha pulsado INICIAR (y el hilo ya existe)
+alarma_sensor = False       # True cuando el satélite avisa de fallo (código 3)
+ultimo_mensaje = 0          # momento (en segundos) del último mensaje válido
+TIMEOUT_CONEXION = 6        # segundos sin mensajes para declarar fallo de conexión
 temperaturas = []
 humedades = []
 eje_x = []
 i = 0
-distancias_radar = [0] * 36
-angulo_actual = 0
-ultimo_fallo_dist = [0, 0, 0]
-TIEMPO_FALLO_DIST = 2
+distancias_radar = [0] * 36   # última distancia medida en cada ángulo (0º, 10º, ..., 350º)
+angulo_actual = 0             # último ángulo del sensor 1 recibido (para la línea de barrido)
+ultimo_fallo_dist = [0, 0, 0] # momento del último "5:n" de cada sensor de distancia (se usan [1] y [2])
+TIEMPO_FALLO_DIST = 2         # si en 2 s no llega otro "5:n", el sensor vuelve a funcionar
 
 # --- Cola circular con las 10 últimas temperaturas ---
 TAM_COLA = 10           # cuántas temperaturas entran en la media
@@ -393,9 +393,9 @@ estado = Label(cajaEstado, text="●  Sin datos (pulse INICIAR)", bg=FONDO, fg=T
 estado.pack(side=LEFT, padx=12)
 estadoSensor = Label(cajaEstado, text="●  Sensor T/H: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
 estadoSensor.pack(side=LEFT, padx=12)
-estadoMedia = Label(cajaEstado, text="●  Temp. media: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
+estadoMedia = Label(cajaEstado, text="●  Temp. media: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))   # 5.2
 estadoMedia.pack(side=LEFT, padx=12)
-estadoRadar = Label(cajaEstado, text="●  Radar: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
+estadoRadar = Label(cajaEstado, text="●  Radar: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))   # fallo sensores distancia
 estadoRadar.pack(side=LEFT, padx=12)
 
 # ---------- Fila 2: línea separadora ----------
@@ -439,17 +439,17 @@ zonaGraficas.grid(row=5, column=0, columnspan=3, sticky="nsew", padx=40, pady=10
 # --- Gráfica de temperatura y humedad ---
 fig = Figure(facecolor=FONDO)
 
-estrellas = fig.add_axes([0, 0, 1, 1])
+estrellas = fig.add_axes([0, 0, 1, 1])        # Estrellas detrás de la gráfica
 estrellas.axis("off")
 estrellas.scatter([random.random() for _ in range(35)], [random.random() for _ in range(35)], s=2, color="white")
 
 # Eje de la temperatura (izquierda)
-ax = fig.add_subplot(111, facecolor="none", frame_on=False, xlim=(0, 100), ylim=(15, 35))
+ax = fig.add_subplot(111, facecolor="none", frame_on=False, xlim=(0, 100), ylim=(15, 35))   #  más margen para ver el límite
 ax.grid(axis="y", color=BORDE)
 ax.tick_params(colors=TEXTO2, length=0)
 lineaTemp, = ax.plot([], [], color=C_TEMP, linewidth=2)
-lineaMedia, = ax.plot([], [], color=C_MEDIA, linewidth=2)
-lineaLimite, = ax.plot([], [], color=C_ALARMA, linestyle="--", linewidth=1)
+lineaMedia, = ax.plot([], [], color=C_MEDIA, linewidth=2)                    # media de los 10 últimos
+lineaLimite, = ax.plot([], [], color=C_ALARMA, linestyle="--", linewidth=1)  # línea del límite
 
 # Eje de la humedad (derecha)
 ax2 = ax.twinx()
@@ -467,22 +467,22 @@ canvas.get_tk_widget().pack(side=LEFT, fill=BOTH, expand=True)
 Frame(zonaGraficas, bg=BORDE, width=1).pack(side=LEFT, fill=Y, padx=10)
 
 # --- Radar (mitad derecha) ---
-figRadar = Figure(facecolor=FONDO)
+figRadar = Figure(facecolor=FONDO)            # Figura con el mismo azul que la ventana
 
 # Capa de estrellas detrás del radar
-estrellasR = figRadar.add_axes([0, 0, 1, 1])
-estrellasR.axis("off")
+estrellasR = figRadar.add_axes([0, 0, 1, 1])  # Ocupa toda la figura
+estrellasR.axis("off")                        # Sin ejes ni números
 estrellasR.scatter([random.random() for _ in range(30)],
-                   [random.random() for _ in range(30)], s=2, color="white")
+                   [random.random() for _ in range(30)], s=2, color="white")   # 30 estrellas al azar
 
 # Gráfica circular (polar)
-axRadar = figRadar.add_subplot(111, projection="polar", facecolor="none")
+axRadar = figRadar.add_subplot(111, projection="polar", facecolor="none")   # Círculo sin fondo
 axRadar.set_ylim(0, 100)
 axRadar.set_yticks([25, 50, 75, 100])
 axRadar.grid(color=C_RADAR, alpha=0.3)
 axRadar.spines["polar"].set_color(C_RADAR)
 axRadar.tick_params(colors=TEXTO2)
-barrido, = axRadar.plot([], [], color=C_RADAR, linewidth=2)
+barrido, = axRadar.plot([], [], color=C_RADAR, linewidth=2)                 # línea que gira con el servo
 puntosRadar, = axRadar.plot([], [], 'o', color=C_CERCA, markersize=6)      
 
 # Meter el radar en la ventana
@@ -522,7 +522,7 @@ periodoTH.pack(pady=(15, 0))
 Label(periodoTH, text="Periodo (1-60 s)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
 entradaTemp = Entry(periodoTH, width=6, justify=CENTER, bg=FONDO, fg="white", font=("Helvetica", 14),
                     highlightthickness=1, highlightbackground=BORDE, insertbackground="white")
-entradaTemp.insert(0, "3")
+entradaTemp.insert(0, "3")                         # valor inicial: el del satélite
 entradaTemp.pack(side=LEFT)
 
 # Fila del límite de la temperatura media 
@@ -556,7 +556,7 @@ botonMediaSatelite = Label(bordeMediaSatelite, text="SATÉLITE", font=("Helvetic
                            padx=8, pady=3, cursor="hand2")
 botonMediaSatelite.pack()
 botonMediaSatelite.bind("<Button-1>", MediaSateliteClick)
-marcarModoMedia()
+marcarModoMedia()                                  # al empezar, resalta TIERRA
 
 # --- INICIAR, APLICAR y mensajes (columna 1) ---
 cajaCentro = Frame(window, bg=FONDO)
@@ -603,7 +603,7 @@ periodoR.pack(pady=(15, 0))
 Label(periodoR, text="Periodo (15-200 ms/grado)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
 entradaDist = Entry(periodoR, width=6, justify=CENTER, bg=FONDO, fg="white", font=("Helvetica", 14),
                     highlightthickness=1, highlightbackground=BORDE, insertbackground="white")
-entradaDist.insert(0, "30")
+entradaDist.insert(0, "30")                        # valor inicial: el del satélite (ms por grado)
 entradaDist.pack(side=LEFT)
 
 # Fila de orientación fija / rastreo (punto 10)
