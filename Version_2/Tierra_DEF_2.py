@@ -1,11 +1,5 @@
 # =====================================================================
-#  ESTACIÓN DE TIERRA (Python) - Versión 2 (Grupo 6)
-#  Interfaz: diseño de nuestra compañera + lógica de la V2 + alarmas
-#  5.2: media de las 10 últimas temperaturas con una cola circular, calculada
-#       en tierra o en el satélite (lo elige el usuario), y alarma
-#       si 3 medias seguidas superan el límite que fija el usuario
-# =====================================================================
-#  PROTOCOLO DE APLICACIÓN  (formato "codigo:dato:dato", una línea por mensaje)
+#  PROTOCOLO DE APLICACIÓN
 #
 #  Satélite -> Tierra
 #    1:temp:hum     datos de temperatura (ºC) y humedad (%)
@@ -27,53 +21,53 @@
 #    5:1 / 5:0      la media la calcula el satélite (1) o tierra (0)
 # =====================================================================
 
-from tkinter import *
-import serial
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import threading
+from tkinter import *      
+import serial              # comunicación
+from matplotlib.figure import Figure    # gráficas
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg     # incrustar gráficas
+import threading           # hilos
 import random
 import time                # para medir el tiempo desde el último mensaje
-import math                # para pasar grados a radianes
+import math                # pasar grados a radianes
 
 # ---------- Colores ----------
-FONDO = "#0B1A2E"      # Azul marino
-BORDE = "#2A4468"      # Líneas separadoras
-TEXTO2 = "#A9B3C4"     # Texto secundario
-C_TEMP = "#FE4E4E"     # Temperatura
-C_HUM = "#9CC8F0"      # Humedad
-C_CERCA = "#E9D7A5"    # Objeto más cercano
-C_RADAR = "#9FE2BF"      # Radar y estados correctos
-C_INICIAR = "#FFFFFF"  # Botón INICIAR
-C_PARAR = "#F28B82"    # Botones de parar
-C_REANUDAR = "#7FD6E8" # Botones de reanudar
-C_APLICAR = "#E9D7A5"  # Botón de aplicar
-C_ALARMA = "#FF5C5C"   # alarmas (fallo de sensor, de conexión y de temperatura media)
-C_MEDIA = "#ECF65C"    # 5.2: línea de la media de temperatura
+FONDO = "#0B1A2E"
+BORDE = "#2A4468"
+TEXTO2 = "#A9B3C4"
+C_TEMP = "#FE4E4E"
+C_HUM = "#9CC8F0"
+C_CERCA = "#E9D7A5"
+C_RADAR = "#9FE2BF"
+C_INICIAR = "#FFFFFF"
+C_PARAR = "#F28B82"
+C_REANUDAR = "#7FD6E8"
+C_APLICAR = "#E9D7A5"
+C_ALARMA = "#FF5C5C"
+C_MEDIA = "#ECF65C"
 
 # ---------- Comunicación y datos ----------
 device = 'COM5'
-ser = serial.Serial(device, baudrate=9600, timeout=1)  # 9600 baudios, espera máx. 1 s al leer
-hilo_iniciado = False      # True cuando se ha pulsado INICIAR (y el hilo ya existe)
-alarma_sensor = False      # True cuando el satélite avisa de fallo (código 3)
-ultimo_mensaje = 0         # momento (en segundos) del último mensaje válido
-TIMEOUT_CONEXION = 6       # segundos sin mensajes para declarar fallo de conexión
+ser = serial.Serial(device, baudrate=9600, timeout=1)
+hilo_iniciado = False
+alarma_sensor = False
+ultimo_mensaje = 0
+TIMEOUT_CONEXION = 6
 temperaturas = []
 humedades = []
 eje_x = []
 i = 0
-distancias_radar = [0] * 36   # última distancia medida en cada ángulo (0º, 10º, ..., 350º)
-angulo_actual = 0             # último ángulo del sensor 1 recibido (para la línea de barrido)
-ultimo_fallo_dist = [0, 0, 0] # momento del último "5:n" de cada sensor de distancia (se usan [1] y [2])
-TIEMPO_FALLO_DIST = 2         # si en 2 s no llega otro "5:n", el sensor vuelve a funcionar
+distancias_radar = [0] * 36
+angulo_actual = 0
+ultimo_fallo_dist = [0, 0, 0]
+TIEMPO_FALLO_DIST = 2
 
-# --- 5.2: cola circular con las 10 últimas temperaturas ---
+# --- Cola circular con las 10 últimas temperaturas ---
 TAM_COLA = 10           # cuántas temperaturas entran en la media
 cola = [0.0] * TAM_COLA # vector de tamaño fijo: aquí se guardan las temperaturas
 pos_cola = 0            # posición donde se escribirá la siguiente temperatura
 cuantos_cola = 0        # cuántas temperaturas hay de verdad en la cola (máximo TAM_COLA)
 
-# --- 5.2: variables para la media y la alarma ---
+# --- Variables para la media y la alarma ---
 medias = []             # valores medios calculados
 eje_x_media = []        # posición X de cada media
 limite = 28.0           # límite de temperatura (lo fija el usuario)
@@ -82,12 +76,7 @@ alarma_activa = False   # True si 3 medias seguidas superan el límite
 media_en_satelite = False   # False = la media la calcula tierra; True = la calcula el satélite
 
 
-# ---------------------------------------------------------------------
-# anadir_cola: guarda una temperatura en la cola circular. Cuando la cola
-#   está llena, la nueva temperatura sustituye a la más antigua.     (5.2)
-#   Parámetro: valor -> la temperatura que se añade
-#   No devuelve nada (cambia cola, pos_cola y cuantos_cola)
-# ---------------------------------------------------------------------
+# --- COLA CIRCULAR: cuando está llena se sustituye la más antigua ---
 def anadir_cola(valor):
     global pos_cola, cuantos_cola
     cola[pos_cola] = valor              # escribe en la posición actual (si ya había algo, lo sustituye)
@@ -98,11 +87,7 @@ def anadir_cola(valor):
         cuantos_cola = cuantos_cola + 1
 
 
-# ---------------------------------------------------------------------
-# calcular_media: calcula la media de las temperaturas que hay en la cola.
-#   No tiene parámetros
-#   Devuelve: la media (float), o 0 si la cola está vacía
-# ---------------------------------------------------------------------
+# --- MEDIA ---
 def calcular_media():
     if cuantos_cola == 0:
         return 0
@@ -112,12 +97,7 @@ def calcular_media():
     return suma / cuantos_cola
 
 
-# ---------------------------------------------------------------------
-# registrar_media: guarda una media para la gráfica y comprueba la alarma,
-#   venga de tierra o del satélite.                                  (5.2)
-#   Parámetro: media -> la media de las 10 últimas temperaturas
-#   No devuelve nada
-# ---------------------------------------------------------------------
+# --- REGISTRAR MEDIA Y COMPROBAR ALARMA ---
 def registrar_media(media):
     if len(eje_x) > 0:                  # la media va en la X de la última temperatura
         eje_x_media.append(eje_x[-1])
@@ -125,26 +105,17 @@ def registrar_media(media):
         comprobar_alarma(media)
 
 
-# ---------------------------------------------------------------------
-# comprobar_alarma: cuenta cuántas medias seguidas superan el límite y
-#   activa la alarma a partir de 3.                                  (5.2)
-#   Parámetro: media -> la última media calculada
-#   No devuelve nada (cambia consecutivos y alarma_activa)
-# ---------------------------------------------------------------------
+# --- COMPROBAR ALARMA: 3 medias superando el límite ---
 def comprobar_alarma(media):
     global consecutivos, alarma_activa
     if media > limite:
-        consecutivos = consecutivos + 1
+        consecutivos = consecutivos + 1     # se suma a la racha
     else:
-        consecutivos = 0          # se rompe la racha
+        consecutivos = 0                    # se rompe la racha
     alarma_activa = consecutivos >= 3
 
 
-# ---------------------------------------------------------------------
-# recepcion: (hilo aparte) lee las líneas del puerto serie y, según el
-#   código del mensaje, guarda los datos o activa la alarma.
-#   No tiene parámetros ni devuelve nada.
-# ---------------------------------------------------------------------
+# --- RECEPCIÓN: lee el mensaje y actúa en consecuencia ---
 def recepcion():
     global i, alarma_sensor, ultimo_mensaje, angulo_actual
     while True:
@@ -153,7 +124,7 @@ def recepcion():
             if linea == "":                                   # no ha llegado nada en 1 s
                 continue
             print(linea)
-            partes = linea.split(':')                         # "1:24.50:50.00" -> ["1","24.50","50.00"]
+            partes = linea.split(':')                         
             codigo = int(partes[0])                           # el primer trozo es el código
             ultimo_mensaje = time.time()                      # mensaje válido: la conexión funciona
             if codigo == 1:                                   # datos T/H
@@ -165,11 +136,11 @@ def recepcion():
                 i = i + 1
                 alarma_sensor = False                         # vuelven a llegar datos buenos
 
-                # --- 5.2: media de los 10 últimos valores (cola circular) ---
+                # --- media de los 10 últimos valores (cola circular) ---
                 anadir_cola(temperatura)                      # la cola se rellena siempre
                 if not media_en_satelite and cuantos_cola == TAM_COLA:
                     registrar_media(calcular_media())         # la calcula tierra
-            elif codigo == 4:                                 # media calculada en el satélite
+            elif codigo == 4:                                 # la calcula en el satélite
                 media = float(partes[1])
                 if media_en_satelite:                         # solo se usa si la ha pedido el usuario
                     registrar_media(media)
@@ -178,7 +149,7 @@ def recepcion():
             elif codigo == 2:                                 # dato del radar
                 angulo = int(partes[1])
                 distancia = float(partes[2])
-                posicion = (angulo % 360) // 10               # 0º -> 0, 10º -> 1, ..., 360º -> 0
+                posicion = (angulo % 360) // 10               
                 distancias_radar[posicion] = distancia        # sustituye la medida anterior de ese ángulo
                 if angulo <= 180:                             # sensor 1: es el ángulo real del servo
                     angulo_actual = angulo
@@ -197,34 +168,31 @@ def recepcion():
             pass
 
 
-# ---------------------------------------------------------------------
-# dibujar: cada 0,5 s actualiza los números, las gráficas y las alarmas.
-#   No tiene parámetros ni devuelve nada.
-# ---------------------------------------------------------------------
+# ---- DIBUJAR: números, gráficas y alarmas ---
 def dibujar():
     # --- Gráfica de temperatura y humedad ---
     n = len(humedades)                                # humedades se rellena la última
     lineaTemp.set_data(eje_x[:n], temperaturas[:n])
     lineaHum.set_data(eje_x[:n], humedades[:n])
 
-    # --- 5.2: media, límite y alarma ---
+    # --- media, límite y alarma ---
     m = len(medias)
-    lineaMedia.set_data(eje_x_media[:m], medias[:m])
-    lineaLimite.set_data([max(0, i - 100), max(100, i)], [limite, limite])
-    if media_en_satelite:
+    lineaMedia.set_data(eje_x_media[:m], medias[:m])                        # dibuja la línea de la media
+    lineaLimite.set_data([max(0, i - 100), max(100, i)], [limite, limite])  # línea horizontal del límite
+    if media_en_satelite:                                                   # quién calcula la media
         donde = " (satélite)"
     else:
         donde = " (tierra)"
-    if alarma_activa:
+    if alarma_activa:                                                        # 3 medias seguidas por encima del límite
         estadoMedia.config(text="●  ALARMA: temperatura media alta" + donde, fg=C_ALARMA)
     elif hilo_iniciado:
         estadoMedia.config(text="●  Temp. media: OK" + donde, fg=C_RADAR)
 
-    ax.set_xlim(max(0, i - 100), max(100, i))
-    canvas.draw_idle()
+    ax.set_xlim(max(0, i - 100), max(100, i))                               # se ven solo las últimas 100 muestras
+    canvas.draw_idle()                                                      # vuelve a dibujar la gráfica
 
     # --- Números de temperatura y humedad + ALARMA DEL SENSOR ---
-    if alarma_sensor:
+    if alarma_sensor:                                                   # el satélite ha mandado un 3: (fallo del DHT11)
         valorTemp.config(text="FALLO", fg=C_ALARMA)
         valorHum.config(text="FALLO", fg=C_ALARMA)
         estadoSensor.config(text="●  Sensor T/H: FALLO", fg=C_ALARMA)
@@ -243,7 +211,7 @@ def dibujar():
     for k in range(36):
         d = distancias_radar[k]
         if d > 0:                                     # solo los ángulos con eco
-            radianes.append(math.radians(k * 10))     # posición k -> ángulo k*10 grados
+            radianes.append(math.radians(k * 10))     # de radianes a grados
             distancias.append(d)
             if mas_cerca == 0 or d < mas_cerca:       # busca el mínimo
                 mas_cerca = d
@@ -259,13 +227,13 @@ def dibujar():
     # --- ALARMA DE LOS SENSORES DE DISTANCIA ---
     fallo1 = time.time() - ultimo_fallo_dist[1] < TIEMPO_FALLO_DIST
     fallo2 = time.time() - ultimo_fallo_dist[2] < TIEMPO_FALLO_DIST
-    if fallo1 and fallo2:
+    if fallo1 and fallo2:                                                       # Fallan los dos
         estadoRadar.config(text="●  FALLO SENSORES DIST. 1 Y 2", fg=C_ALARMA)
-    elif fallo1:
+    elif fallo1:                                                                # Falla el primero solo
         estadoRadar.config(text="●  FALLO SENSOR DIST. 1", fg=C_ALARMA)
-    elif fallo2:
+    elif fallo2:                                                                # Falla el segundo solo
         estadoRadar.config(text="●  FALLO SENSOR DIST. 2", fg=C_ALARMA)
-    elif hilo_iniciado:
+    elif hilo_iniciado:                                                         # No fallan
         estadoRadar.config(text="●  Radar: OK", fg=C_RADAR)
 
     # --- ALARMA DE CONEXIÓN ---
@@ -278,27 +246,14 @@ def dibujar():
     window.after(500, dibujar)
 
 
-# ---------------------------------------------------------------------
-# enviar: envía una orden al satélite añadiendo el fin de línea '\n'.
-#   La envía 2 veces, separadas 50 ms, por si una se estropea por el
-#   camino (SoftwareSerial no puede enviar y recibir a la vez).
-#   Parámetro: mensaje -> texto de la orden, por ejemplo "3:"
-#   No devuelve nada.
-# ---------------------------------------------------------------------
+# ---ENVIA ORDEN AL SATÉLITE ---
 def enviar(mensaje):
     for k in range(2):
         ser.write((mensaje + '\n').encode('utf-8'))
         time.sleep(0.05)                               # 50 ms entre las dos copias
 
 
-# ---------------------------------------------------------------------
-# leerEntero: lee el número escrito en una casilla y comprueba que está
-#   entre minimo y maximo. Si no es válido, lo avisa en mensaje.
-#   Parámetros: casilla -> la Entry de donde se lee
-#               nombre  -> cómo se llama ese dato en el aviso
-#               minimo, maximo -> valores permitidos (incluidos)
-#   Devuelve:   el número (int), o None si no es válido
-# ---------------------------------------------------------------------
+# ---LEERENTERO: comprueba si el número introducido es válido ---
 def leerEntero(casilla, nombre, minimo, maximo):
     texto = casilla.get()
     try:
@@ -313,9 +268,6 @@ def leerEntero(casilla, nombre, minimo, maximo):
 
 
 # ---------- Funciones de los botones ----------
-# Los botones del diseño son Label; con bind() se les asocia una función al
-# hacer clic. bind() le pasa a la función un "evento" que no usamos: por eso
-# todas tienen el parámetro evento.
 def IniciarClick(evento):           # INICIAR: arranca la recepción, T/H y el radar
     global hilo_iniciado, ultimo_mensaje
     if not hilo_iniciado:                              # solo la primera vez
@@ -344,9 +296,9 @@ def ReanudarRadarClick(evento):
     enviar("7:")
     mensaje.config(text="Radar en marcha", fg="white")
 
-def AplicarClick(evento):           # comprueba los dos periodos y, si están bien, los envía
+def AplicarClick(evento):                               # comprueba los dos periodos y, si están bien, los envía
     periodo_th = leerEntero(entradaTemp, "Periodo T/H", 1, 60)
-    if periodo_th is None:                             # el aviso ya está en mensaje
+    if periodo_th is None:                              # el aviso ya está en mensaje
         return
     periodo_radar = leerEntero(entradaDist, "Periodo radar", 15, 200)
     if periodo_radar is None:
@@ -356,34 +308,29 @@ def AplicarClick(evento):           # comprueba los dos periodos y, si están bi
     mensaje.config(text="Periodos aplicados: T/H " + str(periodo_th) + " s, radar "
                    + str(periodo_radar) + " ms/grado", fg="white")
 
-def OrientarClick(evento):          # punto 10: orientación fija del radar
+def OrientarClick(evento):                              # orientación fija del radar
     valor = leerEntero(entradaOrientacion, "Orientación", 0, 350)
-    if valor is None:                                  # el aviso ya está en mensaje
+    if valor is None:                                   # el aviso ya está en mensaje
         return
-    if valor % 10 != 0:                                # el radar mide de 10 en 10 grados
+    if valor % 10 != 0:                                 # el radar mide de 10 en 10 grados
         mensaje.config(text="⚠ Orientación: tiene que ser múltiplo de 10 (0, 10, 20... 350)", fg=C_ALARMA)
         return
     enviar("2:" + str(valor))
     mensaje.config(text="Radar fijo hacia " + str(valor) + "°", fg="white")
 
-def RastreoClick(evento):           # punto 10: modo rastreo (barrido continuo)
+def RastreoClick(evento):                                # modo rastreo 
     enviar("9:")
     mensaje.config(text="Radar en modo rastreo (barrido)", fg="white")
 
-# ---------------------------------------------------------------------
-# marcarModoMedia: resalta el botón del sitio donde se calcula la media
-#   (TIERRA o SATÉLITE) y apaga el otro.                             (5.2)
-#   No tiene parámetros ni devuelve nada
-# ---------------------------------------------------------------------
 def marcarModoMedia():
-    if media_en_satelite:
+    if media_en_satelite:                                       # resalta el boton de satélite
         botonMediaSatelite.config(bg=C_APLICAR, fg=FONDO)
         botonMediaTierra.config(bg=FONDO, fg=C_APLICAR)
-    else:
+    else:                                                       # resalta el boton de tierra
         botonMediaTierra.config(bg=C_APLICAR, fg=FONDO)
         botonMediaSatelite.config(bg=FONDO, fg=C_APLICAR)
 
-def MediaTierraClick(evento):       # la media la calcula tierra
+def MediaTierraClick(evento):        # la media la calcula tierra
     global media_en_satelite
     media_en_satelite = False
     enviar("5:0")
@@ -397,10 +344,10 @@ def MediaSateliteClick(evento):     # la media la calcula el satélite
     marcarModoMedia()
     mensaje.config(text="La media la calcula el satélite", fg="white")
 
-def FijarLimiteClick(evento):       # 5.2: fija el límite de la temperatura media
+def FijarLimiteClick(evento):       # fija el límite de la temperatura media
     global limite
     try:
-        valor = float(entradaLimite.get().replace(",", "."))   # acepta 28,5 y 28.5
+        valor = float(entradaLimite.get().replace(",", "."))
     except ValueError:
         mensaje.config(text="⚠ Límite: '" + entradaLimite.get() + "' no es un número", fg=C_ALARMA)
         return
@@ -440,15 +387,15 @@ Label(window, text="ESTACIÓN DE TIERRA", bg=FONDO, fg="white",
       font=("Helvetica", 24, "bold")).grid(row=0, column=0, columnspan=3, pady=(20, 0))
 
 # ---------- Fila 1: estado (ALARMAS de conexión y de sensor) ----------
-cajaEstado = Frame(window, bg=FONDO)                     # agrupa los estados (alarmas)
+cajaEstado = Frame(window, bg=FONDO)                    
 cajaEstado.grid(row=1, column=0, columnspan=3, pady=(0, 10))
 estado = Label(cajaEstado, text="●  Sin datos (pulse INICIAR)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
 estado.pack(side=LEFT, padx=12)
 estadoSensor = Label(cajaEstado, text="●  Sensor T/H: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
 estadoSensor.pack(side=LEFT, padx=12)
-estadoMedia = Label(cajaEstado, text="●  Temp. media: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))   # 5.2
+estadoMedia = Label(cajaEstado, text="●  Temp. media: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
 estadoMedia.pack(side=LEFT, padx=12)
-estadoRadar = Label(cajaEstado, text="●  Radar: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))   # fallo sensores distancia
+estadoRadar = Label(cajaEstado, text="●  Radar: --", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13))
 estadoRadar.pack(side=LEFT, padx=12)
 
 # ---------- Fila 2: línea separadora ----------
@@ -475,7 +422,7 @@ cajaCerca.grid(row=3, column=2, pady=15)
 Label(cajaCerca, text="MÁS CERCANO", bg=FONDO, fg=TEXTO2, font=("Helvetica", 11, "bold")).pack()
 valorCerca = Label(cajaCerca, text="--", bg=FONDO, fg=C_CERCA, font=("Helvetica", 34, "bold"))
 valorCerca.pack()
-valorCercaAngulo = Label(cajaCerca, text="", bg=FONDO, fg=TEXTO2, font=("Helvetica", 11))   # NUEVO: ángulo
+valorCercaAngulo = Label(cajaCerca, text="", bg=FONDO, fg=TEXTO2, font=("Helvetica", 11))   
 valorCercaAngulo.pack()
 
 # Líneas verticales entre los números
@@ -492,17 +439,17 @@ zonaGraficas.grid(row=5, column=0, columnspan=3, sticky="nsew", padx=40, pady=10
 # --- Gráfica de temperatura y humedad ---
 fig = Figure(facecolor=FONDO)
 
-estrellas = fig.add_axes([0, 0, 1, 1])        # Estrellas detrás de la gráfica
+estrellas = fig.add_axes([0, 0, 1, 1])
 estrellas.axis("off")
 estrellas.scatter([random.random() for _ in range(35)], [random.random() for _ in range(35)], s=2, color="white")
 
 # Eje de la temperatura (izquierda)
-ax = fig.add_subplot(111, facecolor="none", frame_on=False, xlim=(0, 100), ylim=(15, 35))   # 5.2: más margen para ver el límite
+ax = fig.add_subplot(111, facecolor="none", frame_on=False, xlim=(0, 100), ylim=(15, 35))
 ax.grid(axis="y", color=BORDE)
 ax.tick_params(colors=TEXTO2, length=0)
 lineaTemp, = ax.plot([], [], color=C_TEMP, linewidth=2)
-lineaMedia, = ax.plot([], [], color=C_MEDIA, linewidth=2)                    # 5.2: media de los 10 últimos
-lineaLimite, = ax.plot([], [], color=C_ALARMA, linestyle="--", linewidth=1)  # 5.2: línea del límite
+lineaMedia, = ax.plot([], [], color=C_MEDIA, linewidth=2)
+lineaLimite, = ax.plot([], [], color=C_ALARMA, linestyle="--", linewidth=1)
 
 # Eje de la humedad (derecha)
 ax2 = ax.twinx()
@@ -520,23 +467,23 @@ canvas.get_tk_widget().pack(side=LEFT, fill=BOTH, expand=True)
 Frame(zonaGraficas, bg=BORDE, width=1).pack(side=LEFT, fill=Y, padx=10)
 
 # --- Radar (mitad derecha) ---
-figRadar = Figure(facecolor=FONDO)            # Figura con el mismo azul que la ventana
+figRadar = Figure(facecolor=FONDO)
 
 # Capa de estrellas detrás del radar
-estrellasR = figRadar.add_axes([0, 0, 1, 1])  # Ocupa toda la figura
-estrellasR.axis("off")                        # Sin ejes ni números
+estrellasR = figRadar.add_axes([0, 0, 1, 1])
+estrellasR.axis("off")
 estrellasR.scatter([random.random() for _ in range(30)],
-                   [random.random() for _ in range(30)], s=2, color="white")   # 30 estrellas al azar
+                   [random.random() for _ in range(30)], s=2, color="white")
 
 # Gráfica circular (polar)
-axRadar = figRadar.add_subplot(111, projection="polar", facecolor="none")   # Círculo sin fondo
+axRadar = figRadar.add_subplot(111, projection="polar", facecolor="none")
 axRadar.set_ylim(0, 100)
 axRadar.set_yticks([25, 50, 75, 100])
 axRadar.grid(color=C_RADAR, alpha=0.3)
 axRadar.spines["polar"].set_color(C_RADAR)
 axRadar.tick_params(colors=TEXTO2)
-barrido, = axRadar.plot([], [], color=C_RADAR, linewidth=2)                 # línea que gira con el servo
-puntosRadar, = axRadar.plot([], [], 'o', color=C_CERCA, markersize=6)       # CAMBIO: plot con 'o' en vez de scatter
+barrido, = axRadar.plot([], [], color=C_RADAR, linewidth=2)
+puntosRadar, = axRadar.plot([], [], 'o', color=C_CERCA, markersize=6)      
 
 # Meter el radar en la ventana
 canvasRadar = FigureCanvasTkAgg(figRadar, master=zonaGraficas)
@@ -561,13 +508,13 @@ bordePararTH.pack(side=LEFT, padx=5)
 botonPararTH = Label(bordePararTH, text="PARAR T/H", bg=FONDO, fg=C_PARAR, font=("Helvetica", 13, "bold"),
                      padx=15, pady=8, cursor="hand2")
 botonPararTH.pack()
-botonPararTH.bind("<Button-1>", PararTHClick)                 # NUEVO: clic -> función
+botonPararTH.bind("<Button-1>", PararTHClick)                 
 bordeReanudarTH = Frame(botonesTH, bg=C_REANUDAR, padx=2, pady=2)
 bordeReanudarTH.pack(side=LEFT, padx=5)
 botonReanudarTH = Label(bordeReanudarTH, text="REANUDAR T/H", bg=FONDO, fg=C_REANUDAR, font=("Helvetica", 13, "bold"),
                         padx=15, pady=8, cursor="hand2")
 botonReanudarTH.pack()
-botonReanudarTH.bind("<Button-1>", ReanudarTHClick)           # NUEVO
+botonReanudarTH.bind("<Button-1>", ReanudarTHClick)           
 
 # Fila de periodo
 periodoTH = Frame(cajaControlTH, bg=FONDO)
@@ -575,10 +522,10 @@ periodoTH.pack(pady=(15, 0))
 Label(periodoTH, text="Periodo (1-60 s)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
 entradaTemp = Entry(periodoTH, width=6, justify=CENTER, bg=FONDO, fg="white", font=("Helvetica", 14),
                     highlightthickness=1, highlightbackground=BORDE, insertbackground="white")
-entradaTemp.insert(0, "3")                         # valor inicial: el del satélite
+entradaTemp.insert(0, "3")
 entradaTemp.pack(side=LEFT)
 
-# Fila del límite de la temperatura media (5.2)
+# Fila del límite de la temperatura media 
 filaLimite = Frame(cajaControlTH, bg=FONDO)
 filaLimite.pack(pady=(10, 0))
 Label(filaLimite, text="Límite media (°C)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
@@ -593,7 +540,7 @@ botonFijar = Label(bordeFijar, text="FIJAR", bg=FONDO, fg=C_APLICAR, font=("Helv
 botonFijar.pack()
 botonFijar.bind("<Button-1>", FijarLimiteClick)
 
-# Fila para elegir dónde se calcula la media (5.2)
+# Fila para elegir dónde se calcula la media 
 filaMedia = Frame(cajaControlTH, bg=FONDO)
 filaMedia.pack(pady=(10, 0))
 Label(filaMedia, text="Media en", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
@@ -609,7 +556,7 @@ botonMediaSatelite = Label(bordeMediaSatelite, text="SATÉLITE", font=("Helvetic
                            padx=8, pady=3, cursor="hand2")
 botonMediaSatelite.pack()
 botonMediaSatelite.bind("<Button-1>", MediaSateliteClick)
-marcarModoMedia()                                  # al empezar, resalta TIERRA
+marcarModoMedia()
 
 # --- INICIAR, APLICAR y mensajes (columna 1) ---
 cajaCentro = Frame(window, bg=FONDO)
@@ -619,15 +566,15 @@ haloIniciar.pack(pady=(0, 15))
 botonIniciar = Label(haloIniciar, text="▶  INICIAR", bg=C_INICIAR, fg=FONDO, font=("Helvetica", 20, "bold"),
                      padx=35, pady=12, cursor="hand2")
 botonIniciar.pack()
-botonIniciar.bind("<Button-1>", IniciarClick)                 # NUEVO
+botonIniciar.bind("<Button-1>", IniciarClick)                 
 bordeAplicar = Frame(cajaCentro, bg=C_APLICAR, padx=2, pady=2)
 bordeAplicar.pack()
 botonAplicar = Label(bordeAplicar, text="APLICAR PERIODOS", bg=FONDO, fg=C_APLICAR, font=("Helvetica", 13, "bold"),
                      padx=15, pady=8, cursor="hand2")
 botonAplicar.pack()
-botonAplicar.bind("<Button-1>", AplicarClick)                 # NUEVO
+botonAplicar.bind("<Button-1>", AplicarClick)                 
 mensaje = Label(cajaCentro, text="", bg=FONDO, fg="white", font=("Helvetica", 11),
-                wraplength=360)                               # NUEVO: confirmaciones y errores
+                wraplength=360)                               
 mensaje.pack(pady=(10, 0))
 
 # --- Radar (columna 2) ---
@@ -643,20 +590,20 @@ bordePararR.pack(side=LEFT, padx=5)
 botonPararR = Label(bordePararR, text="PARAR RADAR", bg=FONDO, fg=C_PARAR, font=("Helvetica", 13, "bold"),
                     padx=15, pady=8, cursor="hand2")
 botonPararR.pack()
-botonPararR.bind("<Button-1>", PararRadarClick)               # NUEVO
+botonPararR.bind("<Button-1>", PararRadarClick)               
 bordeReanudarR = Frame(botonesR, bg=C_REANUDAR, padx=2, pady=2)
 bordeReanudarR.pack(side=LEFT, padx=5)
 botonReanudarR = Label(bordeReanudarR, text="REANUDAR RADAR", bg=FONDO, fg=C_REANUDAR, font=("Helvetica", 13, "bold"),
                        padx=15, pady=8, cursor="hand2")
 botonReanudarR.pack()
-botonReanudarR.bind("<Button-1>", ReanudarRadarClick)         # NUEVO
+botonReanudarR.bind("<Button-1>", ReanudarRadarClick)         
 
 periodoR = Frame(cajaControlR, bg=FONDO)
 periodoR.pack(pady=(15, 0))
 Label(periodoR, text="Periodo (15-200 ms/grado)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
 entradaDist = Entry(periodoR, width=6, justify=CENTER, bg=FONDO, fg="white", font=("Helvetica", 14),
                     highlightthickness=1, highlightbackground=BORDE, insertbackground="white")
-entradaDist.insert(0, "30")                        # valor inicial: el del satélite (ms por grado)
+entradaDist.insert(0, "30")
 entradaDist.pack(side=LEFT)
 
 # Fila de orientación fija / rastreo (punto 10)
