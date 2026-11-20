@@ -1,62 +1,64 @@
 // =====================================================================
-//  SAT…LITE - VersiÛn 2 (Grupo 6)
-// =====================================================================
-//  PROTOCOLO DE APLICACI”N  (formato "codigo:dato:dato", una lÌnea por mensaje)
+//  PROTOCOLO DE APLICACI√ìN  (formato "codigo:dato:dato", una l√≠nea por mensaje)
 //
-//  SatÈlite -> Tierra
-//    1:temp:hum         datos de temperatura (∫C) y humedad (%)
-//    2:angulo:dist      distancia (cm) medida en un ·ngulo (0-360∫); 0 = sin eco
+//  Sat√©lite -> Tierra
+//    1:temp:hum         datos de temperatura (¬∫C) y humedad (%)
+//    2:angulo:dist      distancia (cm) medida en un √°ngulo (0-360¬∫); 0 = sin eco
 //    3:                 fallo del sensor de temperatura/humedad
-//    4:media            media de las 10 ˙ltimas temperaturas (solo si se calcula en el satÈlite)
+//    4:media            media de las 10 √∫ltimas temperaturas (solo si se calcula en el sat√©lite)
 //    5:sensor           fallo del sensor de distancia 1 o 2 (no responde)
-//    9:                 latido (cada 2 s, siempre): la conexiÛn sigue viva
+//    9:                 latido (cada 2 s, siempre): la conexi√≥n sigue viva
 //
-//  Tierra -> SatÈlite
-//    1:segundos         nuevo periodo de envÌo de T/H (1-60 s)
-//    2:grados           orientaciÛn fija del radar (0-350∫, m˙ltiplo de 10)
-//    3:                 parar envÌo de T/H
-//    4:                 reanudar envÌo de T/H
+//  Tierra -> Sat√©lite
+//    1:segundos         nuevo periodo de env√≠o de T/H (1-60 s)
+//    2:grados           orientaci√≥n fija del radar (0-350¬∫, m√∫ltiplo de 10)
+//    3:                 parar env√≠o de T/H
+//    4:                 reanudar env√≠o de T/H
 //    6:                 parar radar
 //    7:                 reanudar radar
 //    8:milisegundos     nuevo periodo del radar (15-200 ms por grado)
-//    9:                 modo rastreo: el radar vuelve a barrer (no confundir con el latido, que va al revÈs)
-//    5:1 / 5:0          la media la calcula el satÈlite (1) o tierra (0)
+//    9:                 modo rastreo: el radar vuelve a barrer (no confundir con el latido, que va al rev√©s)
+//    5:1 / 5:0          la media la calcula el sat√©lite (1) o tierra (0)
 // =====================================================================
 
-#include <SoftwareSerial.h>
-#include <DHT.h>
-#include <PWMServo.h>               // CAMBIO: sustituye a Servo.h (no le afecta SoftwareSerial)
+#include <SoftwareSerial.h>         // comunicaci√≥n con tierra
+#include <DHT.h>                    // sensor de temperatura y humedad
+#include <PWMServo.h>               // servo (sustituye a Servo.h, que se lleva mal con SoftwareSerial)
 
+// ---------- Sensor de temperatura y humedad ----------
 #define DHTPIN 2
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// ----- Radar: dos HC-SR04 espalda con espalda sobre el servo -----
-const int trig1 = 4;                // sensor 1: mira hacia 0-180∫
+// ---------- Radar: dos HC-SR04 espalda con espalda sobre el servo ----------
+const int trig1 = 4;                // sensor 1: mira hacia 0-180¬∫
 const int echo1 = 5;
-const int trig2 = 6;                // sensor 2: montado al revÈs, mira hacia 180-360∫
+const int trig2 = 6;                // sensor 2: mira hacia 180-360¬∫
 const int echo2 = 7;
-const int pinServo = 9;             // CAMBIO: PWMServo solo funciona en los pines 9 y 10 (el 10 es del SoftwareSerial)
-PWMServo miServo;                   // CAMBIO: objeto de la nueva librerÌa
+const int pinServo = 9;             // PWMServo solo funciona en los pines 9 y 10 (el 10 es del SoftwareSerial)
+PWMServo miServo;
 
-const long timeoutEco = 12000;      // CAMBIO: espera m·xima del eco (µs) -> unos 2 m, lo que muestra la gr·fica
+const long timeoutEco = 12000;      // tiempo m√°ximo de eco (¬µs): unos 2 m
 
-const int led1 = 12;
+// ---------- LED y estado ----------
+const int led1 = 12;                // se enciende al enviar datos de T/H
 bool stateLed1 = LOW;
 bool enviarDatos = false;           // empieza parado: arranca con la orden 4: (INICIAR)
 bool enviarRadar = false;           // empieza parado: arranca con la orden 7:
 
-SoftwareSerial mySerial(10, 11);
+SoftwareSerial mySerial(10, 11);    // RX en el pin 10, TX en el pin 11
 
-int angulo = 0;                     // ·ngulo actual del servo (0-180)
+// ---------- Posici√≥n del radar ----------
+int angulo = 0;                     // √°ngulo actual del servo (0-180)
 int paso = 1;                       // +1 = hacia 180, -1 = hacia 0 (grados por paso)
-bool modoFijo = false;              // false = rastreo (barrido), true = orientaciÛn fija (orden 2:)
+bool modoFijo = false;              // false = rastreo (barrido), true = orientaci√≥n fija (orden 2:)
 
-unsigned long nextMillis1;          // prÛximo envÌo de T/H
+// ---------- Tiempos (con millis, sin delay) ----------
+unsigned long nextMillis1;          // pr√≥ximo env√≠o de T/H
 unsigned long nextMillis2;          // momento de apagar el LED
-unsigned long nextTimeoutSensor;    // prÛximo aviso de fallo de sensor
-unsigned long nextMillisLatido;     // prÛximo latido
-unsigned long nextMillisRadar;      // prÛximo paso del radar
+unsigned long nextTimeoutSensor;    // pr√≥ximo aviso de fallo de sensor
+unsigned long nextMillisLatido;     // pr√≥ximo latido
+unsigned long nextMillisRadar;      // pr√≥ximo paso del radar
 
 long interval1 = 3000;              // periodo T/H (ms), se puede cambiar desde tierra
 const long interval2 = 200;         // LED encendido 0,2 s
@@ -64,15 +66,16 @@ const long interval3 = 5000;        // espera para declarar fallo de sensor: 5 s
 const long intervalLatido = 2000;   // periodo del latido: 2 s
 long intervalRadar = 30;            // ms entre grados (se cambia con la orden 8:)
 
-bool esperandoTimeoutSensor = false;
+bool esperandoTimeoutSensor = false;   // true desde el primer fallo del DHT11
 
-// Media de temperatura en el satÈlite (5.2): cola circular con las 10 ˙ltimas
-bool mediaEnSatelite = false;       // false = la calcula tierra; true = la calcula el satÈlite (orden 5:)
+// ---------- Cola circular con las 10 √∫ltimas temperaturas ----------
+bool mediaEnSatelite = false;       // false = la calcula tierra; true = la calcula el sat√©lite (orden 5:)
 const int TAM_COLA = 10;
-float cola[TAM_COLA];               // vector de tamaÒo fijo con las ˙ltimas temperaturas
-int posCola = 0;                    // posiciÛn donde se escribir· la siguiente temperatura
-int cuantosCola = 0;                // cu·ntas temperaturas hay de verdad (m·ximo TAM_COLA)
+float cola[TAM_COLA];               // vector de tama√±o fijo con las √∫ltimas temperaturas
+int posCola = 0;                    // posici√≥n donde se escribir√° la siguiente temperatura
+int cuantosCola = 0;                // cu√°ntas temperaturas hay de verdad (m√°ximo TAM_COLA)
 
+// ---------- Fallos de los sensores de distancia ----------
 int fallosDist[3] = {0, 0, 0};      // lecturas seguidas sin respuesta de cada sensor (se usan [1] y [2])
 const int maxFallosDist = 3;        // a partir de 3 seguidas se avisa a tierra
 
@@ -80,16 +83,16 @@ void setup() {
    mySerial.begin(9600);
    Serial.begin(9600);
    pinMode(led1, OUTPUT);
-   mySerial.setTimeout(50);
+   mySerial.setTimeout(50);         // readStringUntil espera como mucho 50 ms
 
    pinMode(trig1, OUTPUT);
    pinMode(echo1, INPUT);
    pinMode(trig2, OUTPUT);
    pinMode(echo2, INPUT);
    miServo.attach(pinServo);
-   miServo.write(angulo);           // el servo empieza en 0∫
+   miServo.write(angulo);           // el servo empieza en 0¬∫
    delay(500);                      // le da tiempo a llegar (solo una vez, en setup)
-   miServo.detach();                // radar parado: el servo sin seÒal no tiembla
+   miServo.detach();                // radar parado: el servo sin se√±al no tiembla
 
    nextMillis1 = millis() + interval1;
    nextMillisLatido = millis() + intervalLatido;
@@ -98,41 +101,41 @@ void setup() {
 }
 
 void loop() {
-   // ----- LECTURA Y ENVÕO DE T/H -----
+   // ----- LECTURA Y ENV√çO DE T/H -----
    if (enviarDatos && millis() >= nextMillis1) {
       float h = dht.readHumidity();
       float t = dht.readTemperature();
 
-      if (isnan(h) || isnan(t)) {
+      if (isnan(h) || isnan(t)) {            // lectura fallida
          if (!esperandoTimeoutSensor) {      // primer fallo: empieza a contar
             esperandoTimeoutSensor = true;
             nextTimeoutSensor = millis() + interval3;
          }
       }
       else {
-         esperandoTimeoutSensor = false;
+         esperandoTimeoutSensor = false;     // lectura buena: se olvida el fallo
 
-         mySerial.print("1:");               // cÛdigo 1 = datos T/H
+         mySerial.print("1:");               // c√≥digo 1 = datos T/H
          mySerial.print(t);
          mySerial.print(":");
          mySerial.println(h);                // queda "1:24.50:50.00"
 
          anadirCola(t);                      // la cola se rellena siempre (cuesta muy poco)
          if (mediaEnSatelite && cuantosCola == TAM_COLA) {
-            mySerial.print("4:");            // cÛdigo 4 = media calculada en el satÈlite
+            mySerial.print("4:");            // c√≥digo 4 = media calculada en el sat√©lite
             mySerial.println(calcularMedia());
          }
 
-         stateLed1 = HIGH;
+         stateLed1 = HIGH;                   // enciende el LED al enviar
          digitalWrite(led1, stateLed1);
          nextMillis2 = millis() + interval2;
       }
       nextMillis1 = millis() + interval1;
    }
 
-   // ----- AVISO DE FALLO DE SENSOR -----
+   // ----- AVISO DE FALLO DE SENSOR ----- (si sigue fallando 5 s despu√©s del primer fallo)
    if (enviarDatos && esperandoTimeoutSensor && millis() >= nextTimeoutSensor) {
-      mySerial.println("3:");                // cÛdigo 3 = fallo sensor
+      mySerial.println("3:");                // c√≥digo 3 = fallo sensor
       Serial.println("Error: fallo sensor");
       nextTimeoutSensor = millis() + interval3;
    }
@@ -140,17 +143,17 @@ void loop() {
    // ----- RADAR -----
    if (enviarRadar && millis() >= nextMillisRadar) {
       if (modoFijo) {
-         // OrientaciÛn fija: el servo no se mueve; mide siempre en el mismo ·ngulo,
+         // orientaci√≥n fija: el servo no se mueve y mide siempre en el mismo √°ngulo,
          // tan a menudo como en el barrido (cada 10 pasos)
          medirYEnviar(1, angulo, trig1, echo1);          // sensor 1
-         medirYEnviar(2, angulo + 180, trig2, echo2);    // sensor 2 (al revÈs)
+         medirYEnviar(2, angulo + 180, trig2, echo2);    // sensor 2 (al rev√©s)
          nextMillisRadar = millis() + intervalRadar * 10;
       }
       else {
-         // Rastreo: avanza 1 grado cada intervalRadar y mide cada 10 grados
+         // rastreo: avanza 1 grado cada intervalRadar y mide cada 10 grados
          if (angulo % 10 == 0) {                // solo mide en 0, 10, 20, ... 180
             medirYEnviar(1, angulo, trig1, echo1);          // sensor 1
-            medirYEnviar(2, angulo + 180, trig2, echo2);    // sensor 2 (al revÈs)
+            medirYEnviar(2, angulo + 180, trig2, echo2);    // sensor 2 (al rev√©s)
          }
 
          angulo = angulo + paso;                // siguiente grado
@@ -168,26 +171,26 @@ void loop() {
       }
    }
 
-   // ----- LATIDO ----- (se envÌa siempre, aunque T/H estÈ parado)
+   // ----- LATIDO ----- (se env√≠a siempre, aunque T/H est√© parado)
    if (millis() >= nextMillisLatido) {
-      mySerial.println("9:");                // cÛdigo 9 = latido
+      mySerial.println("9:");                // c√≥digo 9 = latido
       nextMillisLatido = millis() + intervalLatido;
    }
 
-   // ----- RECEPCI”N DE ”RDENES -----
+   // ----- RECEPCI√ìN DE √ìRDENES -----
    if (mySerial.available()) {
       String orden = mySerial.readStringUntil('\n');   // lee un mensaje entero
       orden.trim();                                    // quita espacios, '\r' y '\n'
       Serial.println(orden);                           // para depurar
 
-      int fin = orden.indexOf(':');                    // posiciÛn del primer ':'
-      if (fin > 0) {                                   // ignora mensajes sin cÛdigo
+      int fin = orden.indexOf(':');                    // posici√≥n del primer ':'
+      if (fin > 0) {                                   // ignora mensajes sin c√≥digo
          int codigo = orden.substring(0, fin).toInt();
 
          if (codigo == 1) {                            // nuevo periodo T/H (segundos)
             long valor = orden.substring(fin + 1).toInt();
-            if (valor >= 1 && valor <= 60) {           // toInt() da 0 si no es un n˙mero
-               interval1 = valor * 1000;
+            if (valor >= 1 && valor <= 60) {           // toInt() da 0 si no es un n√∫mero
+               interval1 = valor * 1000;               // de segundos a ms
                nextMillis1 = millis() + interval1;
             }
             else {
@@ -201,37 +204,37 @@ void loop() {
          else if (codigo == 4) {                       // reanudar T/H
             if (!enviarDatos) {                        // si ya estaba en marcha, no hace nada
                enviarDatos = true;
-               nextMillis1 = millis();                 // envÌa enseguida
+               nextMillis1 = millis();                 // env√≠a enseguida
             }
          }
          else if (codigo == 6) {                       // parar radar
             if (enviarRadar) {                         // si ya estaba parado, no hace nada
                enviarRadar = false;
-               miServo.detach();                       // sin seÒal: el servo se queda quieto y no tiembla
+               miServo.detach();                       // sin se√±al: el servo se queda quieto y no tiembla
             }
          }
          else if (codigo == 7) {                       // reanudar radar
             if (!enviarRadar) {                        // si ya estaba en marcha, no hace nada
                enviarRadar = true;
-               miServo.attach(pinServo);               // vuelve a darle seÒal al servo
-               miServo.write(angulo);                  // sigue desde donde se quedÛ
-               nextMillisRadar = millis() + 300;       // primer paso cuando el servo ya est· colocado
+               miServo.attach(pinServo);               // vuelve a darle se√±al al servo
+               miServo.write(angulo);                  // sigue desde donde se qued√≥
+               nextMillisRadar = millis() + 300;       // primer paso cuando el servo ya est√° colocado
             }
          }
-         else if (codigo == 2) {                       // orientaciÛn fija del radar
+         else if (codigo == 2) {                       // orientaci√≥n fija del radar
             String texto = orden.substring(fin + 1);
             long grados = texto.toInt();
-            bool esNumero = texto.length() > 0 && texto.charAt(0) >= '0' && texto.charAt(0) <= '9';
+            bool esNumero = texto.length() > 0 && texto.charAt(0) >= '0' && texto.charAt(0) <= '9';   // toInt() tambi√©n da 0 con letras
             if (esNumero && grados >= 0 && grados <= 350 && grados % 10 == 0) {
                modoFijo = true;
                if (grados <= 180) {
                   angulo = grados;                     // apunta el sensor 1
                }
                else {
-                  angulo = grados - 180;               // apunta el sensor 2 (mira al revÈs)
+                  angulo = grados - 180;               // apunta el sensor 2 (mira al rev√©s)
                }
                if (enviarRadar) {
-                  miServo.write(angulo);               // si el radar est· parado, se colocar· al reanudar
+                  miServo.write(angulo);               // si el radar est√° parado, se colocar√° al reanudar
                }
                nextMillisRadar = millis() + 300;       // primera medida cuando el servo ya ha llegado
             }
@@ -242,10 +245,10 @@ void loop() {
          else if (codigo == 9) {                       // modo rastreo: vuelve a barrer
             modoFijo = false;
          }
-         else if (codigo == 5) {                       // dÛnde se calcula la media
+         else if (codigo == 5) {                       // d√≥nde se calcula la media
             String texto = orden.substring(fin + 1);
             if (texto == "1") {
-               mediaEnSatelite = true;                 // la calcula el satÈlite
+               mediaEnSatelite = true;                 // la calcula el sat√©lite
             }
             else if (texto == "0") {
                mediaEnSatelite = false;                // la calcula tierra
@@ -273,21 +276,15 @@ void loop() {
    }
 }
 
-// ---------------------------------------------------------------------
-// medirDistancia: hace una medida con un sensor HC-SR04
-//   Par·metros: trig, echo -> pines del sensor
-//   Devuelve:   distancia en cm,
-//               0 si el sensor responde pero no hay objeto cerca (sin eco),
-//              -1 si el sensor no responde (desconectado o roto)
-// ---------------------------------------------------------------------
+// --- MEDIR DISTANCIA: devuelve los cm, 0 si no hay eco o -1 si el sensor no responde ---
 float medirDistancia(int trig, int echo) {
-   digitalWrite(trig, LOW);
+   digitalWrite(trig, LOW);                  // pulso de 10 ¬µs para disparar el sensor
    delayMicroseconds(2);
    digitalWrite(trig, HIGH);
    delayMicroseconds(10);
    digitalWrite(trig, LOW);
 
-   // 1. Un sensor que funciona pone echo en HIGH menos de 1 ms despuÈs del disparo
+   // un sensor que funciona pone el echo en HIGH en menos de 1 ms
    unsigned long inicio = micros();
    while (digitalRead(echo) == LOW) {
       if (micros() - inicio > 3000) {
@@ -295,7 +292,7 @@ float medirDistancia(int trig, int echo) {
       }
    }
 
-   // 2. Echo est· en HIGH mientras el sonido va y vuelve
+   // mientras est√° en HIGH, el sonido va y vuelve
    unsigned long subida = micros();
    while (digitalRead(echo) == HIGH) {
       if (micros() - subida > timeoutEco) {
@@ -305,57 +302,41 @@ float medirDistancia(int trig, int echo) {
    return (micros() - subida) * 0.0343 / 2;  // ida y vuelta -> dividir entre 2
 }
 
-// ---------------------------------------------------------------------
-// anadirCola: guarda una temperatura en la cola circular. Cuando est·
-//   llena, la nueva sustituye a la m·s antigua.
-//   Par·metro: valor -> la temperatura que se aÒade
-//   No devuelve nada (cambia cola, posCola y cuantosCola)
-// ---------------------------------------------------------------------
+// --- COLA CIRCULAR: cuando est√° llena se sustituye la m√°s antigua ---
 void anadirCola(float valor) {
-   cola[posCola] = valor;
+   cola[posCola] = valor;                   // escribe en la posici√≥n actual
    posCola = posCola + 1;
    if (posCola == TAM_COLA) {               // final del vector: vuelve al principio
       posCola = 0;
    }
-   if (cuantosCola < TAM_COLA) {
+   if (cuantosCola < TAM_COLA) {            // mientras no est√© llena, hay una temperatura m√°s
       cuantosCola = cuantosCola + 1;
    }
 }
 
-// ---------------------------------------------------------------------
-// calcularMedia: media de las temperaturas que hay en la cola
-//   No tiene par·metros
-//   Devuelve: la media, o 0 si la cola est· vacÌa
-// ---------------------------------------------------------------------
+// --- MEDIA: de las temperaturas que hay en la cola ---
 float calcularMedia() {
    if (cuantosCola == 0) {
       return 0;
    }
    float suma = 0;
-   for (int k = 0; k < cuantosCola; k++) {
+   for (int k = 0; k < cuantosCola; k++) {  // solo las posiciones que tienen datos de verdad
       suma = suma + cola[k];
    }
    return suma / cuantosCola;
 }
 
-// ---------------------------------------------------------------------
-// medirYEnviar: mide con un sensor y envÌa el resultado a tierra.
-//   Si el sensor no responde 3 veces seguidas, envÌa "5:sensor".
-//   Par·metros: sensor -> 1 o 2
-//               ang    -> ·ngulo hacia el que mira el sensor
-//               trig, echo -> pines del sensor
-//   No devuelve nada
-// ---------------------------------------------------------------------
+// --- MEDIR Y ENVIAR: si el sensor no responde 3 veces seguidas, avisa con "5:sensor" ---
 void medirYEnviar(int sensor, int ang, int trig, int echo) {
    float d = medirDistancia(trig, echo);
    if (d < 0) {                                       // el sensor no ha respondido
       fallosDist[sensor] = fallosDist[sensor] + 1;
       if (fallosDist[sensor] >= maxFallosDist) {
-         mySerial.print("5:");                        // cÛdigo 5 = fallo sensor de distancia
+         mySerial.print("5:");                        // c√≥digo 5 = fallo sensor de distancia
          mySerial.println(sensor);
       }
       else {
-         enviarDistancia(ang, 0);                     // fallo suelto: se envÌa como "sin eco"
+         enviarDistancia(ang, 0);                     // fallo suelto: se env√≠a como "sin eco"
       }
    }
    else {
@@ -364,12 +345,7 @@ void medirYEnviar(int sensor, int ang, int trig, int echo) {
    }
 }
 
-// ---------------------------------------------------------------------
-// enviarDistancia: envÌa a tierra el mensaje "2:angulo:distancia"
-//   Par·metros: ang  -> ·ngulo en grados (0-360)
-//               dist -> distancia en cm (0 = sin eco)
-//   No devuelve nada
-// ---------------------------------------------------------------------
+// --- ENVIAR DISTANCIA: manda "2:angulo:distancia" a tierra ---
 void enviarDistancia(int ang, float dist) {
    mySerial.print("2:");
    mySerial.print(ang);
