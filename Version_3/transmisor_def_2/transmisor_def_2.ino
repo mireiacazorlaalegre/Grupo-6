@@ -1,5 +1,6 @@
 // =====================================================================
-//  PROTOCOLO DE APLICACIÓN  (formato "codigo:dato:dato", una línea por mensaje)
+//  PROTOCOLO DE APLICACIÓN  (formato "codigo:dato:dato|checksum", una línea por mensaje)
+//  checksum: suma de los caracteres que hay antes del '|', truncada a un byte (0-255)    ejemplo: "1:24.50:50.00|145"
 //
 //  Satélite -> Tierra
 //    1:temp:hum         datos de temperatura (ºC) y humedad (%)
@@ -114,28 +115,24 @@ void loop() {
       }
       else {
          esperandoTimeoutSensor = false;     // lectura buena: se olvida el fallo
-
-         mySerial.print("1:");               // código 1 = datos T/H
-         mySerial.print(t);
-         mySerial.print(":");
-         mySerial.println(h);                // queda "1:24.50:50.00"
-
+         enviarMensaje("1:" + String(t) + ":" + String(h)); // Se envían todos los datos en un solo mensaje (para poder calcular el checksum)
          anadirCola(t);                      // la cola se rellena siempre (cuesta muy poco)
+
          if (mediaEnSatelite && cuantosCola == TAM_COLA) {
-            mySerial.print("4:");            // código 4 = media calculada en el satélite
-            mySerial.println(calcularMedia());
+            enviarMensaje("4:" + String(calcularMedia()));   // código 4 = media calculada en el satélite
          }
 
          stateLed1 = HIGH;                   // enciende el LED al enviar
          digitalWrite(led1, stateLed1);
          nextMillis2 = millis() + interval2;
       }
+   
       nextMillis1 = millis() + interval1;
    }
 
    // ----- AVISO DE FALLO DE SENSOR ----- (si sigue fallando 5 s después del primer fallo)
-   if (enviarDatos && esperandoTimeoutSensor && millis() >= nextTimeoutSensor) {
-      mySerial.println("3:");                // código 3 = fallo sensor
+   if (enviarDatos && esperandoTimeoutSensor && millis() >= nextTimeoutSensor) {             
+      enviarMensaje("3:");                 // código 3 = fallo sensor
       Serial.println("Error: fallo sensor");
       nextTimeoutSensor = millis() + interval3;
    }
@@ -173,7 +170,7 @@ void loop() {
 
    // ----- LATIDO ----- (se envía siempre, aunque T/H esté parado)
    if (millis() >= nextMillisLatido) {
-      mySerial.println("9:");                // código 9 = latido
+      enviarMensaje("9:");                // código 9 = latido
       nextMillisLatido = millis() + intervalLatido;
    }
 
@@ -183,8 +180,31 @@ void loop() {
       orden.trim();                                    // quita espacios, '\r' y '\n'
       Serial.println(orden);                           // para depurar
 
-      int fin = orden.indexOf(':');                    // posición del primer ':'
-      if (fin > 0) {                                   // ignora mensajes sin código
+      // buscar el '|' del checksum y el primer ':'
+      int barra = -1;                                  // posición del '|' (-1 = no hay)
+      int fin = -1;                                    // posición del primer ':'
+      for (int k = 0; k < orden.length(); k++) {
+         if (orden.charAt(k) == '|') {
+            barra = k;
+         }
+         if (orden.charAt(k) == ':' && fin == -1) {    // solo el primero
+            fin = k;
+         }
+      }
+      // comprobar checksum: si no coincide, la orden se ha estropeado
+      bool ordenOk = false;
+      if (barra > 0) {
+         String cuerpo = orden.substring(0, barra);       // lo de antes del '|': "3:"
+         int chk = orden.substring(barra + 1).toInt();    // el número de después: 109
+         if (calcularChecksum(cuerpo) == chk) {
+            orden = cuerpo;                               // a partir de aquí, la orden sin el checksum
+            ordenOk = true;
+         }
+      }
+      if (!ordenOk) {
+         Serial.println("Orden corrupta");
+      }
+      if (ordenOk && fin > 0) {                                   // ignora mensajes sin código
          int codigo = orden.substring(0, fin).toInt();
 
          if (codigo == 1) {                            // nuevo periodo T/H (segundos)
@@ -332,8 +352,7 @@ void medirYEnviar(int sensor, int ang, int trig, int echo) {
    if (d < 0) {                                       // el sensor no ha respondido
       fallosDist[sensor] = fallosDist[sensor] + 1;
       if (fallosDist[sensor] >= maxFallosDist) {
-         mySerial.print("5:");                        // código 5 = fallo sensor de distancia
-         mySerial.println(sensor);
+         enviarMensaje("5:" + String(sensor));       // código 5 = fallo sensor distancia
       }
       else {
          enviarDistancia(ang, 0);                     // fallo suelto: se envía como "sin eco"
@@ -347,8 +366,23 @@ void medirYEnviar(int sensor, int ang, int trig, int echo) {
 
 // --- ENVIAR DISTANCIA: manda "2:angulo:distancia" a tierra ---
 void enviarDistancia(int ang, float dist) {
-   mySerial.print("2:");
-   mySerial.print(ang);
-   mySerial.print(":");
-   mySerial.println(dist);                   // queda "2:90:35.20"
+   enviarMensaje("2:" + String(ang) + ":" + String(dist));
+}
+
+// --- CHECKSUM: cuenta los carácteres del mensaje y devuelve la suma de sus códigos ---
+int calcularChecksum(String mensaje) {
+   int suma = 0;
+   for (int k = 0; k < mensaje.length(); k++) {    // recorre todo el mensaje y suma
+      suma = suma + mensaje.charAt(k);
+   }
+   suma = suma % 256;                              // truncar a byte
+   return suma;
+}
+
+// --- 
+void enviarMensaje(String mensaje) {
+   int checksum = calcularChecksum (mensaje);
+   mySerial.print(mensaje);
+   mySerial.print("|");
+   mySerial.println(checksum);
 }
