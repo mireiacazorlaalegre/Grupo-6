@@ -1,5 +1,6 @@
 // =====================================================================
-//  PROTOCOLO DE APLICACIÓN  (formato "codigo:dato:dato", una línea por mensaje)
+//  PROTOCOLO DE APLICACIÓN  (formato "codigo:dato:dato|checksum", una línea por mensaje)
+//  checksum: suma de los caracteres que hay antes del '|', truncada a un byte (0-255)
 //
 //  Satélite -> Tierra
 //    1:temp:hum         datos de temperatura (ºC) y humedad (%)
@@ -7,6 +8,7 @@
 //    3:                 fallo del sensor de temperatura/humedad
 //    4:media            media de las 10 últimas temperaturas (solo si se calcula en el satélite)
 //    5:sensor           fallo del sensor de distancia 1 o 2 (no responde)
+//    8:                 mensaje corrupto (el checksum no coincide)
 //    9:                 latido (cada 2 s, siempre): la conexión sigue viva
 //
 //  Tierra -> Satélite
@@ -50,10 +52,10 @@ String textoFila1 = "(^_^)";           // lo que hay ahora en la fila de abajo d
 void setup() {
    Serial.begin(9600);                 // con el PC
    mySerial.begin(9600);               // con el satélite
-   mySerial.println("3:");             // al arrancar tierra, el satélite deja de enviar T/H
-   mySerial.println("6:");             // y para el radar, hasta que se pulse INICIAR
-   mySerial.println("9:");             // y vuelve al modo rastreo, por si estaba en orientación fija
-   mySerial.println("5:0");            // y la media la vuelve a calcular tierra (como empieza Python)
+   enviarMensaje("3:");             // al arrancar tierra, el satélite deja de enviar T/H
+   enviarMensaje("6:");             // y para el radar, hasta que se pulse INICIAR
+   enviarMensaje("9:");             // y vuelve al modo rastreo, por si estaba en orientación fija
+   enviarMensaje("5:0");            // y la media la vuelve a calcular tierra (como empieza Python)
    pinMode(led1, OUTPUT);
    Serial.setTimeout(50);              // readStringUntil espera como mucho 50 ms
    mySerial.setTimeout(50);
@@ -73,6 +75,27 @@ void loop() {
       data.trim();                                    // quita '\r' y '\n'
 
       if (data.length() > 0 && esMensajeValido(data)) {   // descarta mensajes estropeados
+         // buscar el '|' del checksum
+         int barra = -1;                                  // posición del '|' (-1 = no hay)
+         for (int k = 0; k < data.length(); k++) {
+            if (data.charAt(k) == '|') {
+               barra = k;
+            }
+         }
+         // comprobar checksum: si no coincide, el mensaje se ha estropeado
+         bool mensajeOk = false;
+         if (barra > 0) {
+            String cuerpo = data.substring(0, barra);       // lo de antes del '|': "3:"
+            int chk = data.substring(barra + 1).toInt();    // el número de después: 109
+            if (calcularChecksum(cuerpo) == chk) {
+               data = cuerpo;                               // a partir de aquí, el mensaje sin el checksum
+               mensajeOk = true;
+            }
+         } 
+         if (!mensajeOk) {
+            data = "8:";
+         }
+
          Serial.println(data);                        // reenvía TODO al PC (Python)
          ultimoMensaje = millis();                    // la conexión funciona
 
@@ -120,7 +143,7 @@ void loop() {
       String orden = Serial.readStringUntil('\n');    // no espera los 50 ms si llega el '\n'
       orden.trim();
       if (orden.length() > 0) {
-         mySerial.println(orden);                     // reenvía la orden con su fin de línea
+         enviarMensaje(orden);                     // reenvia con checksum
       }
    }
 
@@ -184,14 +207,32 @@ void actualizarFilaRadar() {
    }
 }
 
-// --- MENSAJE VÁLIDO: solo puede tener dígitos, ':', '.' o '-' ---
+// --- MENSAJE VÁLIDO: solo puede tener dígitos, ':', '.', '-' o '|' ---
 bool esMensajeValido(String data) {
    for (int k = 0; k < data.length(); k++) {
       char c = data.charAt(k);
       bool esDigito = (c >= '0' && c <= '9');
-      if (!esDigito && c != ':' && c != '.' && c != '-') {
+      if (!esDigito && c != ':' && c != '.' && c != '-' && c != '|') {
          return false;                       // carácter raro: mensaje estropeado
       }
    }
    return true;                              // todos los caracteres son válidos
+}
+
+// --- CHECKSUM: cuenta los carácteres del mensaje y devuelve la suma de sus códigos ---
+int calcularChecksum(String mensaje) {
+   int suma = 0;
+   for (int k = 0; k < mensaje.length(); k++) {    // recorre todo el mensaje y suma
+      suma = suma + mensaje.charAt(k);
+   }
+   suma = suma % 256;                              // truncar a byte
+   return suma;
+}
+
+// --- ENVIAR MENSAJE: envia todo en un solo mensaje---
+void enviarMensaje(String mensaje) {
+   int checksum = calcularChecksum (mensaje);
+   mySerial.print(mensaje);
+   mySerial.print("|");
+   mySerial.println(checksum);
 }
