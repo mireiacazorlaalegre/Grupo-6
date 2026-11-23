@@ -8,6 +8,7 @@
 //    3:                 fallo del sensor de temperatura/humedad
 //    4:media            media de las 10 últimas temperaturas (solo si se calcula en el satélite)
 //    5:sensor           fallo del sensor de distancia 1 o 2 (no responde)
+//    8:                 mensaje corrupto (el checksum no coincide)
 //    9:                 latido (cada 2 s, siempre): la conexión sigue viva
 //
 //  Tierra -> Satélite
@@ -379,7 +380,7 @@ int calcularChecksum(String mensaje) {
    return suma;
 }
 
-// --- 
+// --- ENVIAR MENSAJE: envia todo en un solo mensaje ---
 void enviarMensaje(String mensaje) {
    int checksum = calcularChecksum (mensaje);
    mySerial.print(mensaje);
