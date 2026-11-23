@@ -23,7 +23,7 @@ El sistema simula un satélite que se comunica con una estación de tierra:
 | Versión | Qué incluye | Vídeo |
 | --- | --- | --- |
 | 1 | Envío de temperatura y humedad, LCD en tierra, gráfica en tiempo real, órdenes de parar/reanudar y alarmas (fallo de sensor y de conexión) | [Ver vídeo V1](https://drive.google.com/file/d/1DW6Z_8IgxookbccRerrv29M3-voX5HDI/view?usp=sharing) |
-| 2 | Radar de 360° con servo + 2 HC-SR04, media de las 10 últimas temperaturas (cola circular) en tierra o en el satélite, alarma de temperatura media, cambio de periodos y orientación del radar desde la interfaz | (pendiente) |
+| 2 | Radar de 360° con servo + 2 HC-SR04, media de las 10 últimas temperaturas (cola circular) en tierra o en el satélite, alarma de temperatura media, cambio de periodos y orientación del radar desde la interfaz | ([Ver Vídeo 2](https://drive.google.com/file/d/1q4tF_KL9SYcIomtGKmw3714wYmAoL_Bu/view?usp=sharing)) |
 | 3 | (pendiente) | — |
 | 4 | (pendiente) | — |
 
