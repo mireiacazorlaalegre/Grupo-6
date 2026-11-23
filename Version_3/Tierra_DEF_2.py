@@ -7,6 +7,7 @@
 #    3:             fallo del sensor de temperatura/humedad
 #    4:media        media de las 10 últimas temperaturas (solo si se calcula en el satélite)
 #    5:sensor       fallo del sensor de distancia 1 o 2 (no responde)
+#    8:             mensaje corrupto (el checksum no coincide)
 #    9:             latido (cada 2 s, siempre): la conexión sigue viva
 #
 #  Tierra -> Satélite
@@ -52,6 +53,7 @@ hilo_iniciado = False       # True cuando se ha pulsado INICIAR (y el hilo ya ex
 alarma_sensor = False       # True cuando el satélite avisa de fallo (código 3)
 ultimo_mensaje = 0          # momento (en segundos) del último mensaje válido
 TIMEOUT_CONEXION = 6        # segundos sin mensajes para declarar fallo de conexión
+ultimo_corrupto = 0         # momento del último mensaje corrupto 
 temperaturas = []
 humedades = []
 eje_x = []
@@ -117,7 +119,7 @@ def comprobar_alarma(media):
 
 # --- RECEPCIÓN: lee el mensaje y actúa en consecuencia ---
 def recepcion():
-    global i, alarma_sensor, ultimo_mensaje, angulo_actual
+    global i, alarma_sensor, ultimo_mensaje, angulo_actual, ultimo_corrupto
     while True:
         try:
             linea = ser.readline().decode('utf-8').rstrip()   # espera como mucho 1 s
@@ -163,6 +165,8 @@ def recepcion():
                     else:
                         for k in range(19, 36):               # 190º a 350º
                             distancias_radar[k] = 0
+            elif codigo == 8:                                 # mensaje corrupto (lo avisa el Arduino de tierra)
+                ultimo_corrupto = time.time()
             # código 9 (latido): solo sirve para actualizar ultimo_mensaje
         except (UnicodeDecodeError, IndexError, ValueError):  # línea defectuosa: se ignora
             pass
@@ -236,10 +240,12 @@ def dibujar():
     elif hilo_iniciado:                                                         # No fallan
         estadoRadar.config(text="●  Radar: OK", fg=C_RADAR)
 
-    # --- ALARMA DE CONEXIÓN ---
+    # --- ALARMA DE CONEXIÓN Y MENSAJES CORRUPTOS ---
     if hilo_iniciado:                                 # solo se vigila tras pulsar INICIAR
         if time.time() - ultimo_mensaje > TIMEOUT_CONEXION:
             estado.config(text="●  FALLO DE CONEXIÓN", fg=C_ALARMA)
+        elif time.time() - ultimo_corrupto < 2:       # ha llegado un mensaje corrupto hace menos de 2 s
+            estado.config(text="●  MENSAJE CORRUPTO", fg=C_ALARMA)
         else:
             estado.config(text="●  Recibiendo datos", fg=C_RADAR)
 
