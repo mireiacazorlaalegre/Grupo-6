@@ -7,6 +7,7 @@
 #    3:             fallo del sensor de temperatura/humedad
 #    4:media        media de las 10 últimas temperaturas (solo si se calcula en el satélite)
 #    5:sensor       fallo del sensor de distancia 1 o 2 (no responde)
+#    6:             coordenadas de la simulación (6:x:y:z)
 #    8:             mensaje corrupto (el checksum no coincide)
 #    9:             latido (cada 2 s, siempre): la conexión sigue viva
 #
@@ -20,6 +21,9 @@
 #    8:milisegundos nuevo periodo del radar (15-200 ms por grado)
 #    9:             modo rastreo: el radar vuelve a barrer (no confundir con el latido, que va al revés)
 #    5:1 / 5:0      la media la calcula el satélite (1) o tierra (0)
+#    10:            parar envío de la posición
+#    11:            reanudar envío de la posición
+#    12:segundos    nuevo periodo de envío de la posición (1-60 s)
 # =====================================================================
 
 from tkinter import *      
@@ -30,6 +34,7 @@ import threading           # hilos
 import random
 import time                # para medir el tiempo desde el último mensaje
 import math                # pasar grados a radianes
+from matplotlib.patches import Circle   # círculo de la Tierra en la gráfica de la órbita
 
 # ---------- Colores ----------
 FONDO = "#0B1A2E"      # Azul marino
@@ -62,6 +67,8 @@ distancias_radar = [0] * 36   # última distancia medida en cada ángulo (0º, 1
 angulo_actual = 0             # último ángulo del sensor 1 recibido (para la línea de barrido)
 ultimo_fallo_dist = [0, 0, 0] # momento del último "5:n" de cada sensor de distancia (se usan [1] y [2])
 TIEMPO_FALLO_DIST = 2         # si en 2 s no llega otro "5:n", el sensor vuelve a funcionar
+pos_x = []                    # coordenadas X de la órbita (m)
+pos_y = []                    # coordenadas Y de la órbita (m)
 
 # --- Cola circular con las 10 últimas temperaturas ---
 TAM_COLA = 10           # cuántas temperaturas entran en la media
@@ -165,6 +172,9 @@ def recepcion():
                     else:
                         for k in range(19, 36):               # 190º a 350º
                             distancias_radar[k] = 0
+            elif codigo == 6:                                 # posición del satélite
+                pos_x.append(float(partes[1]))
+                pos_y.append(float(partes[2]))
             elif codigo == 8:                                 # mensaje corrupto (lo avisa el Arduino de tierra)
                 ultimo_corrupto = time.time()
             # código 9 (latido): solo sirve para actualizar ultimo_mensaje
@@ -240,6 +250,13 @@ def dibujar():
     elif hilo_iniciado:                                                         # No fallan
         estadoRadar.config(text="●  Radar: OK", fg=C_RADAR)
 
+    # --- Órbita del satélite ---
+    p = len(pos_y)                                    # pos_y se rellena la última
+    if p > 0:
+        lineaOrbita.set_data(pos_x[:p], pos_y[:p])                 # toda la trayectoria
+        puntoSatelite.set_data([pos_x[p - 1]], [pos_y[p - 1]])     # último punto
+        canvasOrbita.draw_idle()                                   # vuelve a dibujar la órbita
+
     # --- ALARMA DE CONEXIÓN Y MENSAJES CORRUPTOS ---
     if hilo_iniciado:                                 # solo se vigila tras pulsar INICIAR
         if time.time() - ultimo_mensaje > TIMEOUT_CONEXION:
@@ -284,6 +301,7 @@ def IniciarClick(evento):           # INICIAR: arranca la recepción, T/H y el r
         hilo_iniciado = True
     enviar("4:")                                       # reanudar T/H
     enviar("7:")                                       # reanudar radar
+    enviar("11:")                                      # reanudar posición
     mensaje.config(text="Sistema en marcha", fg="white")
 
 def PararTHClick(evento):
@@ -302,17 +320,21 @@ def ReanudarRadarClick(evento):
     enviar("7:")
     mensaje.config(text="Radar en marcha", fg="white")
 
-def AplicarClick(evento):                               # comprueba los dos periodos y, si están bien, los envía
+def AplicarClick(evento):                               # comprueba los tres periodos y, si están bien, los envía
     periodo_th = leerEntero(entradaTemp, "Periodo T/H", 1, 60)
     if periodo_th is None:                              # el aviso ya está en mensaje
         return
     periodo_radar = leerEntero(entradaDist, "Periodo radar", 15, 200)
     if periodo_radar is None:
         return
+    periodo_pos = leerEntero(entradaPos, "Periodo posición", 1, 60)
+    if periodo_pos is None:
+        return
     enviar("1:" + str(periodo_th))
     enviar("8:" + str(periodo_radar))
+    enviar("12:" + str(periodo_pos))
     mensaje.config(text="Periodos aplicados: T/H " + str(periodo_th) + " s, radar "
-                   + str(periodo_radar) + " ms/grado", fg="white")
+                   + str(periodo_radar) + " ms/grado, posición " + str(periodo_pos) + " s", fg="white")
 
 def OrientarClick(evento):                              # orientación fija del radar
     valor = leerEntero(entradaOrientacion, "Orientación", 0, 350)
@@ -327,6 +349,14 @@ def OrientarClick(evento):                              # orientación fija del 
 def RastreoClick(evento):                                # modo rastreo 
     enviar("9:")
     mensaje.config(text="Radar en modo rastreo (barrido)", fg="white")
+
+def PararPosicionClick(evento):
+    enviar("10:")
+    mensaje.config(text="Envío de la posición parado", fg="white")
+
+def ReanudarPosicionClick(evento):
+    enviar("11:")
+    mensaje.config(text="Envío de la posición en marcha", fg="white")
 
 def marcarModoMedia():
     if media_en_satelite:                                       # resalta el boton de satélite
@@ -371,7 +401,7 @@ def cerrar():
 # ---------- Ventana ----------
 window = Tk()
 window.title("Estación de Tierra")
-window.geometry("1200x800")
+window.geometry("1400x900")
 window.configure(bg=FONDO)
 
 # Columnas y filas
@@ -443,7 +473,7 @@ zonaGraficas = Frame(window, bg=FONDO)
 zonaGraficas.grid(row=5, column=0, columnspan=3, sticky="nsew", padx=40, pady=10)
 
 # --- Gráfica de temperatura y humedad ---
-fig = Figure(facecolor=FONDO)
+fig = Figure(figsize=(4, 3), facecolor=FONDO)
 
 estrellas = fig.add_axes([0, 0, 1, 1])        # Estrellas detrás de la gráfica
 estrellas.axis("off")
@@ -473,7 +503,7 @@ canvas.get_tk_widget().pack(side=LEFT, fill=BOTH, expand=True)
 Frame(zonaGraficas, bg=BORDE, width=1).pack(side=LEFT, fill=Y, padx=10)
 
 # --- Radar (mitad derecha) ---
-figRadar = Figure(facecolor=FONDO)            # Figura con el mismo azul que la ventana
+figRadar = Figure(figsize=(4, 3), facecolor=FONDO)            # Figura con el mismo azul que la ventana
 
 # Capa de estrellas detrás del radar
 estrellasR = figRadar.add_axes([0, 0, 1, 1])  # Ocupa toda la figura
@@ -495,6 +525,33 @@ puntosRadar, = axRadar.plot([], [], 'o', color=C_CERCA, markersize=6)
 canvasRadar = FigureCanvasTkAgg(figRadar, master=zonaGraficas)
 canvasRadar.get_tk_widget().configure(bg=FONDO, highlightthickness=0)
 canvasRadar.get_tk_widget().pack(side=LEFT, fill=BOTH, expand=True)
+
+# Línea vertical entre el radar y la órbita
+Frame(zonaGraficas, bg=BORDE, width=1).pack(side=LEFT, fill=Y, padx=10)
+
+# --- Órbita del satélite (vista desde el polo norte) ---
+figOrbita = Figure(figsize=(4, 3), facecolor=FONDO)
+axOrbita = figOrbita.add_subplot(111, facecolor="none")
+axOrbita.set_xlim(-8e6, 8e6)                     # la órbita tiene radio 6771 km: cabe con margen
+axOrbita.set_ylim(-8e6, 8e6)
+axOrbita.set_aspect("equal")                     # proporción 1:1 para que la órbita salga redonda
+axOrbita.set_title("Órbita (vista desde el polo norte)", color=TEXTO2, fontsize=10)
+axOrbita.set_xlabel("X (m)", color=TEXTO2)
+axOrbita.set_ylabel("Y (m)", color=TEXTO2)
+axOrbita.tick_params(colors=TEXTO2)
+axOrbita.xaxis.offsetText.set_color(TEXTO2)      # el "1e6" que sale junto a los ejes
+axOrbita.yaxis.offsetText.set_color(TEXTO2)
+axOrbita.grid(color=BORDE)
+for lado in axOrbita.spines.values():            # bordes del recuadro
+    lado.set_color(BORDE)
+axOrbita.add_patch(Circle((0, 0), 6371000, color="orange", fill=False))       # superficie de la Tierra
+lineaOrbita, = axOrbita.plot([], [], color=C_HUM, linewidth=1)                # trayectoria del satélite
+puntoSatelite, = axOrbita.plot([], [], 'o', color=C_ALARMA, markersize=7)     # último punto
+
+# Meter la órbita en la ventana
+canvasOrbita = FigureCanvasTkAgg(figOrbita, master=zonaGraficas)
+canvasOrbita.get_tk_widget().configure(bg=FONDO, highlightthickness=0)
+canvasOrbita.get_tk_widget().pack(side=LEFT, fill=BOTH, expand=True)
 
 # ---------- Fila 6: línea separadora ----------
 Frame(window, bg=BORDE, height=1).grid(row=6, column=0, columnspan=3, sticky="ew", padx=40)
@@ -578,7 +635,33 @@ bordeAplicar.pack()
 botonAplicar = Label(bordeAplicar, text="APLICAR PERIODOS", bg=FONDO, fg=C_APLICAR, font=("Helvetica", 13, "bold"),
                      padx=15, pady=8, cursor="hand2")
 botonAplicar.pack()
-botonAplicar.bind("<Button-1>", AplicarClick)                 
+botonAplicar.bind("<Button-1>", AplicarClick)   
+
+# Controles de la posición
+Label(cajaCentro, text="POSICIÓN", bg=FONDO, fg=TEXTO2,
+      font=("Helvetica", 11, "bold")).pack(pady=(15, 5))
+filaPosicion = Frame(cajaCentro, bg=FONDO)
+filaPosicion.pack()
+bordePararP = Frame(filaPosicion, bg=C_PARAR, padx=2, pady=2)
+bordePararP.pack(side=LEFT, padx=5)
+botonPararP = Label(bordePararP, text="PARAR", bg=FONDO, fg=C_PARAR, font=("Helvetica", 11, "bold"),
+                    padx=8, pady=3, cursor="hand2")
+botonPararP.pack()
+botonPararP.bind("<Button-1>", PararPosicionClick)
+bordeReanudarP = Frame(filaPosicion, bg=C_REANUDAR, padx=2, pady=2)
+bordeReanudarP.pack(side=LEFT, padx=5)
+botonReanudarP = Label(bordeReanudarP, text="REANUDAR", bg=FONDO, fg=C_REANUDAR, font=("Helvetica", 11, "bold"),
+                       padx=8, pady=3, cursor="hand2")
+botonReanudarP.pack()
+botonReanudarP.bind("<Button-1>", ReanudarPosicionClick)
+periodoP = Frame(cajaCentro, bg=FONDO)
+periodoP.pack(pady=(8, 0))
+Label(periodoP, text="Periodo (1-60 s)", bg=FONDO, fg=TEXTO2, font=("Helvetica", 13)).pack(side=LEFT, padx=(0, 10))
+entradaPos = Entry(periodoP, width=4, justify=CENTER, bg=FONDO, fg="white", font=("Helvetica", 14),
+                   highlightthickness=1, highlightbackground=BORDE, insertbackground="white")
+entradaPos.insert(0, "1")                          # valor inicial: el del satélite
+entradaPos.pack(side=LEFT) 
+
 mensaje = Label(cajaCentro, text="", bg=FONDO, fg="white", font=("Helvetica", 11),
                 wraplength=360)                               
 mensaje.pack(pady=(10, 0))
