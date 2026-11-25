@@ -8,6 +8,7 @@
 //    3:                 fallo del sensor de temperatura/humedad
 //    4:media            media de las 10 últimas temperaturas (solo si se calcula en el satélite)
 //    5:sensor           fallo del sensor de distancia 1 o 2 (no responde)
+//    6:x:y:z            posición del satélite (m)
 //    8:                 mensaje corrupto (el checksum no coincide)
 //    9:                 latido (cada 2 s, siempre): la conexión sigue viva
 //
@@ -20,6 +21,9 @@
 //    7:                 reanudar radar
 //    8:milisegundos     nuevo periodo del radar (15-200 ms por grado)
 //    9:                 modo rastreo: el radar vuelve a barrer (no confundir con el latido, que va al revés)
+//    10:                parar envío de la posición
+//    11:                reanudar envío de la posición
+//    12:segundos        nuevo periodo de envío de la posición (1-60 s)
 //    5:1 / 5:0          la media la calcula el satélite (1) o tierra (0)
 // =====================================================================
 
@@ -77,6 +81,20 @@ float cola[TAM_COLA];               // vector de tamaño fijo con las últimas t
 int posCola = 0;                    // posición donde se escribirá la siguiente temperatura
 int cuantosCola = 0;                // cuántas temperaturas hay de verdad (máximo TAM_COLA)
 
+// ---------- Simulación de la órbita ----------
+const double G = 6.67430e-11;                   // constante de gravitación (m^3 kg^-1 s^-2)
+const double M = 5.97219e24;                    // masa de la Tierra (kg)
+const double R_EARTH = 6371000;                 // radio de la Tierra (m)
+const double ALTITUDE = 400000;                 // altura del satélite (m)
+const double EARTH_ROTATION_RATE = 7.2921159e-5;   // rotación de la Tierra (rad/s)
+long intervalPosicion = 1000;                   // periodo de envío de la posición (ms)
+bool enviarPosicion = false;                    // empieza parado: arranca al pulsar INICIAR
+const double TIME_COMPRESSION = 90.0;           // el tiempo va 90 veces más rápido
+
+unsigned long nextUpdate;                       // próxima vez que se calcula la posición
+double real_orbital_period;                     // periodo real de la órbita (s)
+double r;                                       // distancia del centro de la Tierra al satélite (m)
+
 // ---------- Fallos de los sensores de distancia ----------
 int fallosDist[3] = {0, 0, 0};      // lecturas seguidas sin respuesta de cada sensor (se usan [1] y [2])
 const int maxFallosDist = 3;        // a partir de 3 seguidas se avisa a tierra
@@ -100,6 +118,10 @@ void setup() {
    nextMillisLatido = millis() + intervalLatido;
    nextMillisRadar = millis();
    dht.begin();
+
+   nextUpdate = millis() + intervalPosicion;
+   r = R_EARTH + ALTITUDE;
+   real_orbital_period = 2 * PI * sqrt(pow(r, 3) / (G * M));
 }
 
 void loop() {
@@ -173,6 +195,12 @@ void loop() {
    if (millis() >= nextMillisLatido) {
       enviarMensaje("9:");                // código 9 = latido
       nextMillisLatido = millis() + intervalLatido;
+   }
+
+   // ----- POSICIÓN DEL SATÉLITE -----
+   if (enviarPosicion && millis() >= nextUpdate) {
+      simulate_orbit(millis(), 0, 0);        // órbita ecuatorial (inclinación 0) sin rotación de la Tierra
+      nextUpdate = millis() + intervalPosicion;
    }
 
    // ----- RECEPCIÓN DE ÓRDENES -----
@@ -287,6 +315,25 @@ void loop() {
                Serial.println("Periodo radar no valido");
             }
          }
+         else if (codigo == 10) {                      // parar posición
+            enviarPosicion = false;
+         }
+         else if (codigo == 11) {                      // reanudar posición
+            if (!enviarPosicion) {                     // si ya estaba en marcha, no hace nada
+               enviarPosicion = true;
+               nextUpdate = millis();                  // envía enseguida
+            }
+         }
+         else if (codigo == 12) {                      // nuevo periodo de la posición (segundos)
+            long valor = orden.substring(fin + 1).toInt();
+            if (valor >= 1 && valor <= 60) {           // toInt() da 0 si no es un número
+               intervalPosicion = valor * 1000;        // de segundos a ms
+               nextUpdate = millis() + intervalPosicion;
+            }
+            else {
+               Serial.println("Periodo posicion no valido");
+            }
+         }
       }
    }
 
@@ -386,4 +433,23 @@ void enviarMensaje(String mensaje) {
    mySerial.print(mensaje);
    mySerial.print("|");
    mySerial.println(checksum);
+}
+
+// --- SIMULAR ÓRBITA: calcula la posición del satélite y la envía a tierra (código del profesor) ---
+void simulate_orbit(unsigned long millis, double inclination, int ecef) {
+   double time = (millis / 1000) * TIME_COMPRESSION;        // tiempo real de la órbita
+   double angle = 2 * PI * (time / real_orbital_period);    // ángulo en radianes
+   double x = r * cos(angle);                               // coordenada X (m)
+   double y = r * sin(angle) * cos(inclination);            // coordenada Y (m)
+   double z = r * sin(angle) * sin(inclination);            // coordenada Z (m)
+
+   if (ecef) {
+      double theta = EARTH_ROTATION_RATE * time;
+      double x_ecef = x * cos(theta) - y * sin(theta);
+      double y_ecef = x * sin(theta) + y * cos(theta);
+      x = x_ecef;
+      y = y_ecef;
+   }
+
+   enviarMensaje("6:" + String(x) + ":" + String(y) + ":" + String(z));   // código 6 = posición
 }
